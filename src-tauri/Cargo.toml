@@ -1,0 +1,18 @@
+[package]
+name = "calculator-tauri"
+version = "1.0.0"
+description = "AnyCalcutor"
+authors = ["Alex"]
+edition = "2021"
+
+[lib]
+name = "calculator_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "=2.6.0", features = [] }
+
+[dependencies]
+tauri = { version = "=2.11.0", features = [] }
+tauri-utils = "=2.9.0"
+time = "=0.3.47"

@@ -1,0 +1,1 @@
+{"capabilities/default.json":{"identifier":"capabilities/default.json","description":"默认权限配置","local":true,"windows":["*"],"permissions":["core:default"]}}
