@@ -16,6 +16,54 @@ const cBound = ref(25);
 const showGrade = ref(false);
 const gradeSortKey = ref("rank");   // 默认按排名升序
 const gradeSortAsc = ref(true);
+const showTouchPad = ref(true);
+const showCalcPad = ref(true); // 显示计算器按键面板
+
+// 计算器按键处理
+const calcKeys = [
+    // 数字行
+    ['7', '8', '9', '÷'],
+    ['4', '5', '6', '×'],
+    ['1', '2', '3', '−'],
+    ['0', '.', '⌫', '+'],
+    ['(', ')', '^', '%'],
+];
+const calcFuncKeys = ['sin(', 'cos(', 'tan(', 'sqrt(', 'ln(', 'pi', 'abs(', 'pow('];
+
+function calcKeyTap(key) {
+    if (key === '⌫') {
+        inputText.value = inputText.value.slice(0, -1);
+    } else if (key === '÷') {
+        inputText.value += '/';
+    } else if (key === '×') {
+        inputText.value += '*';
+    } else if (key === '−') {
+        inputText.value += '-';
+    } else {
+        inputText.value += key;
+    }
+}
+
+function calcFuncTap(fn) {
+    const trimmed = inputText.value.trim();
+    const isNumber = trimmed !== '' && !isNaN(Number(trimmed)) && isFinite(Number(trimmed));
+    if (fn === 'sin(' || fn === 'cos(' || fn === 'tan(' || fn === 'sqrt(' || fn === 'ln(' || fn === 'abs(') {
+        if (isNumber) {
+            inputText.value = fn + trimmed + ')';
+        } else {
+            inputText.value = trimmed ? trimmed + ' ' + fn : fn;
+        }
+    } else if (fn === 'pow(') {
+        inputText.value = trimmed ? trimmed + ' ' + fn : fn;
+    } else if (fn === 'pi') {
+        inputText.value = trimmed ? trimmed + ' pi' : 'pi';
+    }
+}
+
+function calcClear() {
+    inputText.value = '';
+    errorMsg.value = '';
+}
 
 // 支持的数学函数提示
 const functionHints = [
@@ -446,6 +494,48 @@ function formatNum(n) {
             </div>
             <p v-if="previewResult" class="preview-result">💡 {{ previewResult.value }}</p>
             <p v-if="errorMsg" class="error-msg">❌ {{ errorMsg }}</p>
+
+            <!-- 计算器键盘切换 -->
+            <div class="calc-pad-toggle">
+                <button class="toggle-pad-btn" @click="showCalcPad = !showCalcPad">
+                    {{ showCalcPad ? '🔽 收起键盘' : '🔼 展开触屏键盘' }}
+                </button>
+            </div>
+
+            <!-- 计算器触屏按键面板 -->
+            <div v-if="showCalcPad" class="calc-pad">
+                <!-- 函数快捷键行 -->
+                <div class="calc-func-row">
+                    <button
+                        v-for="fn in calcFuncKeys"
+                        :key="fn"
+                        class="calc-btn func"
+                        @click="calcFuncTap(fn)"
+                    >{{ fn }}</button>
+                </div>
+                <!-- 数字/运算符按键网格 -->
+                <div class="calc-grid">
+                    <template v-for="row in calcKeys" :key="row.join('')">
+                        <button
+                            v-for="key in row"
+                            :key="key"
+                            class="calc-btn"
+                            :class="{
+                                'calc-num': key >= '0' && key <= '9' || key === '.',
+                                'calc-op': ['÷','×','−','+','^','%'].includes(key),
+                                'calc-paren': key === '(' || key === ')',
+                                'calc-del': key === '⌫',
+                            }"
+                            @click="calcKeyTap(key)"
+                        >{{ key }}</button>
+                    </template>
+                </div>
+                <!-- 底栏：清除 + 计算 -->
+                <div class="calc-bottom-row">
+                    <button class="calc-btn calc-clear" @click="calcClear">C</button>
+                    <button class="calc-btn calc-equals" @click="handleKeyboardSubmit">=</button>
+                </div>
+            </div>
         </div>
 
         <!-- 快捷粘贴模式 -->
@@ -1714,5 +1804,250 @@ tr.grade-D .col-grade {
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+/* ==================== 计算器触屏按键面板 ==================== */
+.calc-pad-toggle {
+    text-align: center;
+    margin-top: 12px;
+}
+
+.toggle-pad-btn {
+    background: none;
+    border: 1px solid #e8e5ff;
+    color: #6366f1;
+    padding: 6px 16px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all .15s;
+}
+
+.toggle-pad-btn:hover {
+    background: #f5f3ff;
+    border-color: #6366f1;
+}
+
+.calc-pad {
+    margin-top: 12px;
+    padding: 14px;
+    background: #fafafa;
+    border: 1px solid #f0f0f0;
+    border-radius: 12px;
+    animation: fadeIn .2s ease;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* 函数快捷键行 */
+.calc-func-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+/* 数字/运算符网格 */
+.calc-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+/* 底栏 */
+.calc-bottom-row {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 8px;
+}
+
+/* 通用按键 */
+.calc-btn {
+    padding: 14px 4px;
+    border: none;
+    border-radius: 10px;
+    font-size: 18px;
+    font-weight: 600;
+    font-family: "SF Mono", "Fira Code", "PingFang SC", monospace;
+    cursor: pointer;
+    transition: all .12s;
+    text-align: center;
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+
+.calc-btn:active {
+    transform: scale(0.94);
+}
+
+/* 数字键 */
+.calc-btn.calc-num {
+    background: #fff;
+    color: #1a1a2e;
+    border: 1.5px solid #e5e7eb;
+    font-size: 20px;
+}
+
+.calc-btn.calc-num:active {
+    background: #eef2ff;
+    border-color: #6366f1;
+}
+
+/* 运算符键 */
+.calc-btn.calc-op {
+    background: #f5f3ff;
+    color: #6366f1;
+    font-size: 20px;
+}
+
+.calc-btn.calc-op:active {
+    background: #ddd6fe;
+}
+
+/* 括号键 */
+.calc-btn.calc-paren {
+    background: #f0f9ff;
+    color: #0284c7;
+    font-size: 18px;
+}
+
+.calc-btn.calc-paren:active {
+    background: #e0f2fe;
+}
+
+/* 删除键 */
+.calc-btn.calc-del {
+    background: #fef2f2;
+    color: #dc2626;
+    font-size: 18px;
+}
+
+.calc-btn.calc-del:active {
+    background: #fee2e2;
+}
+
+/* 函数快捷键 */
+.calc-func-row .calc-btn.func {
+    flex: 1;
+    min-width: 52px;
+    padding: 8px 4px;
+    font-size: 13px;
+    font-weight: 500;
+    background: #f0fdf4;
+    color: #16a34a;
+    border: 1px solid #dcfce7;
+    border-radius: 8px;
+}
+
+.calc-func-row .calc-btn.func:active {
+    background: #dcfce7;
+}
+
+/* 清除键 */
+.calc-btn.calc-clear {
+    background: #fef2f2;
+    color: #dc2626;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.calc-btn.calc-clear:active {
+    background: #fee2e2;
+}
+
+/* 等号键 */
+.calc-btn.calc-equals {
+    background: #6366f1;
+    color: #fff;
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.calc-btn.calc-equals:active {
+    background: #4f46e5;
+}
+
+/* ==================== 深色模式下的计算器面板 ==================== */
+.dark .calc-pad-toggle .toggle-pad-btn {
+    border-color: #334155;
+    color: #818cf8;
+}
+
+.dark .toggle-pad-btn:hover {
+    background: #1e293b;
+    border-color: #6366f1;
+}
+
+.dark .calc-pad {
+    background: #1e293b;
+    border-color: #2d3748;
+}
+
+.dark .calc-btn.calc-num {
+    background: #0f172a;
+    border-color: #334155;
+    color: #e2e8f0;
+}
+
+.dark .calc-btn.calc-num:active {
+    background: #312e81;
+    border-color: #6366f1;
+}
+
+.dark .calc-btn.calc-op {
+    background: #312e81;
+    color: #a5b4fc;
+}
+
+.dark .calc-btn.calc-op:active {
+    background: #3730a3;
+}
+
+.dark .calc-btn.calc-paren {
+    background: #1e3a5f;
+    color: #7dd3fc;
+}
+
+.dark .calc-btn.calc-paren:active {
+    background: #1e40af;
+}
+
+.dark .calc-btn.calc-del {
+    background: #3b1016;
+    color: #fca5a5;
+}
+
+.dark .calc-btn.calc-del:active {
+    background: #581c1c;
+}
+
+.dark .calc-func-row .calc-btn.func {
+    background: #14532d;
+    color: #86efac;
+    border-color: #166534;
+}
+
+.dark .calc-func-row .calc-btn.func:active {
+    background: #166534;
+}
+
+.dark .calc-btn.calc-clear {
+    background: #3b1016;
+    color: #fca5a5;
+}
+
+.dark .calc-btn.calc-clear:active {
+    background: #581c1c;
+}
+
+.dark .calc-btn.calc-equals {
+    background: #6366f1;
+    color: #fff;
+}
+
+.dark .calc-btn.calc-equals:active {
+    background: #4f46e5;
 }
 </style>
