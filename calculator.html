@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="zh-Hant-HK">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bootstrap 5 現代化計算機 UI</title>
+    <!-- 引入 Bootstrap 5 CSS -->
+    <link href="https://jsdelivr.net" rel="stylesheet" />
+    <style>
+      body {
+        background: linear-gradient(135deg, #e0e0e0 0%, #f5f5f5 100%);
+        min-height: 100vh;
+      }
+      .calculator-card {
+        max-width: 360px;
+        border: none;
+        border-radius: 24px;
+        background-color: #212529; /* 深色計算機主體 */
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+      }
+      .calc-screen {
+        background-color: #1a1d20;
+        color: #ffffff;
+        font-size: 2.5rem;
+        text-align: right;
+        border: none;
+        border-radius: 12px;
+        padding: 15px;
+        width: 100%;
+        margin-bottom: 20px;
+        font-family: monospace;
+      }
+      .calc-screen:focus {
+        background-color: #1a1d20;
+        color: #ffffff;
+        box-shadow: none;
+      }
+      .btn-calc {
+        font-size: 1.25rem;
+        font-weight: 600;
+        height: 65px;
+        border-radius: 16px;
+        transition: all 0.1s ease;
+      }
+      .btn-calc:active {
+        transform: scale(0.95);
+      }
+      /* 功能鍵顏色優化 */
+      .btn-operator {
+        background-color: #fd7e14;
+        color: white;
+      }
+      .btn-operator:hover {
+        background-color: #e67112;
+        color: white;
+      }
+      .btn-function {
+        background-color: #6c757d;
+        color: white;
+      }
+      .btn-function:hover {
+        background-color: #5a6268;
+        color: white;
+      }
+      .btn-number {
+        background-color: #343a40;
+        color: white;
+        border: 1px solid #495057;
+      }
+      .btn-number:hover {
+        background-color: #495057;
+        color: white;
+      }
+    </style>
+  </head>
+  <body class="d-flex align-items-center justify-content-center">
+    <div class="card calculator-card p-4">
+      <!-- 計算機顯示螢幕 -->
+      <input
+        type="text"
+        id="display"
+        class="form-control calc-screen"
+        value="0"
+        readonly
+        autocomplete="off"
+      />
+
+      <!-- 按鈕區域 -->
+      <div class="container-fluid p-0">
+        <!-- 第一排：功能按鍵 -->
+        <div class="row g-2 mb-2">
+          <div class="col-3">
+            <button
+              class="btn btn-calc btn-function w-100"
+              onclick="clearDisplay()"
+            >
+              C
+            </button>
+          </div>
+          <div class="col-3">
+            <button
+              class="btn btn-calc btn-function w-100"
+              onclick="backspace()"
+            >
+              ⌫
+            </button>
+          </div>
+          <div class="col-3">
+            <button
+              class="btn btn-calc btn-function w-100"
+              onclick="inputOperator('%')"
+            >
+              %
+            </button>
+          </div>
+          <div class="col-3">
+            <button
+              class="btn btn-calc btn-operator w-100"
+              onclick="inputOperator('/')"
+            >
+              ÷
+            </button>
+          </div>
+        </div>
+
+        <!-- 第二排：7, 8, 9, 乘 -->
+        <div class="row g-2 mb-2">
+          <div class="col-3">
+            <button
+              class="btn btn-calc btn-number w-100"
+              onclick="inputNum('7')"
+            >
+              7
+            </button>
+          </div>
+          <div class="col-3">
+            <button
+              class="btn btn-calc btn-number w-100"
+              onclick="inputNum('8')"
+            >
+              8
+            </button>
+          </div>
+          <div class="col-3">
+            <button
+              class="btn btn-calc btn-number w-100"
+              onclick="inputNum('9')"
+            >
+              9
+            </button>
+          </div>
+          <div class="col-3">
+            <button
+              class="btn btn-calc btn-operator w-100"
+              onclick="inputOperator('*')"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        <!-- 第三排：4, 5, 6, 減 -->
+        <div class="row g-2 mb-2">
+          <div class="col-3">
+            <button
+              class="btn btn-calc btn-number w-100"
+              onclick="inputNum('4')"
+            >
+              4
+            </button>
+          </div>
+          <div class="col-3">
+            <button
+              class="btn btn-calc btn-number w-100"
+              onclick="inputNum('5')"
+            >
+              5
+            </button>
+          </div>
+          <div class="col-3">
+            <button
+              class="btn btn-calc btn-number w-100"
+              onclick="inputNum('6')"
+            >
+              6
+            </button>
+          </div>
+          <div class="col-3">
+            <button
+              class="btn btn-calc btn-operator w-100"
+              onclick="inputOperator('-')"
+            >
+              −
+            </button>
+          </div>
+        </div>
+
+        <!-- 第四排：1, 2, 3, 加 -->
+        <div class="row g-2 mb-2">
+          <div class="col-3">
+            <button
+              class="btn btn-calc btn-number w-100"
+              onclick="inputNum('1')"
+            >
+              1
+            </button>
+          </div>
+          <div class="col-3">
+            <button
+              class="btn btn-calc btn-number w-100"
+              onclick="inputNum('2')"
+            >
+              2
+            </button>
+          </div>
+          <div class="col-3">
+            <button
+              class="btn btn-calc btn-number w-100"
+              onclick="inputNum('3')"
+            >
+              3
+            </button>
+          </div>
+          <div class="col-3">
+            <button
+              class="btn btn-calc btn-operator w-100"
+              onclick="inputOperator('+')"
+            >
+              +
+            </button>
+          </div>
+        </div>
+
+        <!-- 第五排：0, 點, 等於 -->
+        <div class="row g-2">
+          <div class="col-6">
+            <button
+              class="btn btn-calc btn-number w-100"
+              onclick="inputNum('0')"
+            >
+              0
+            </button>
+          </div>
+          <div class="col-3">
+            <button
+              class="btn btn-calc btn-number w-100"
+              onclick="inputNum('.')"
+            >
+              .
+            </button>
+          </div>
+          <div class="col-3">
+            <button
+              class="btn btn-calc btn-operator w-100"
+              onclick="calculate()"
+            >
+              =
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 引入 Bootstrap 5 JS Bundle -->
+    <script src="https://jsdelivr.net"></script>
+
+    <!-- 計算機核心邏輯 JavaScript -->
+    <script>
+      const display = document.getElementById("display");
+      let isReset = false;
+
+      function inputNum(num) {
+        if ((display.value === "0" && num !== ".") || isReset) {
+          display.value = num;
+          isReset = false;
+        } else {
+          // 防止重複輸入小數點
+          if (num === "." && display.value.includes(".")) {
+            // 如果最後一段數字已經有小數點，則不再重複添加
+            const parts = display.value.split(/[\+\-\*\/]/);
+            if (parts[parts.length - 1].includes(".")) return;
+          }
+          display.value += num;
+        }
+      }
+
+      function inputOperator(operator) {
+        const lastChar = display.value.slice(-1);
+        isReset = false;
+
+        // 防止重複連續輸入運算子
+        if (["+", "-", "*", "/"].includes(lastChar)) {
+          display.value = display.value.slice(0, -1) + operator;
+        } else {
+          display.value += operator;
+        }
+      }
+
+      function clearDisplay() {
+        display.value = "0";
+      }
+
+      function backspace() {
+        if (display.value.length > 1) {
+          display.value = display.value.slice(0, -1);
+        } else {
+          display.value = "0";
+        }
+      }
+
+      function calculate() {
+        try {
+          // 處理百分比與安全評估
+          let expression = display.value;
+          // 簡單安全的計算邏輯
+          let result = Function('"use strict";return (' + expression + ")")();
+
+          // 處理浮點數精準度問題 (例如 0.1 + 0.2)
+          if (!Number.isInteger(result)) {
+            result = Math.round(result * 100000000) / 100000000;
+          }
+
+          display.value = result;
+          isReset = true;
+        } catch (error) {
+          display.value = "Error";
+          isReset = true;
+        }
+      }
+    </script>
+  </body>
+</html>

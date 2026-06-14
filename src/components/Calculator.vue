@@ -1,15 +1,14 @@
 <script setup>
 import { ref, computed } from "vue";
 
-// 模式: "menu" | "keyboard" | "paste"
-const mode = ref("menu");
 const inputText = ref("");
 const numbers = ref([]);
 const errorMsg = ref("");
 const history = ref([]);
 const copiedIdx = ref(-1);
-const darkMode = ref(false);
 const quickPasteText = ref("");
+const displayResult = ref(null);
+const lastInput = ref("");       // 上一次计算的输入
 const aBound = ref(75);
 const bBound = ref(50);
 const cBound = ref(25);
@@ -18,6 +17,41 @@ const gradeSortKey = ref("rank");   // 默认按排名升序
 const gradeSortAsc = ref(true);
 const showTouchPad = ref(true);
 const showCalcPad = ref(true); // 显示计算器按键面板
+const showHints = ref(false);
+const showStats = ref(false);  // 是否展示统计面板
+const showPace = ref(true);    // 是否显示配速转换
+const paceHints = new Set(['km', 'Hour', 'Min', 'Second']);
+
+// 表达式是否包含配速相关单位
+const paceContext = computed(() => {
+    const expr = lastInput.value.toLowerCase();
+    const hasTime = /\b(hour|min|sec|second)\b/.test(expr);
+    const hasDist = /\bkm\b/.test(expr);
+    return { hasTime, hasDist, isSpeed: hasTime && hasDist && expr.includes('/') };
+});
+
+// 配速：仅当表达式含距离+时间+除法时显示
+const paceText = computed(() => {
+    if (!showPace.value || numbers.value.length !== 1) return null;
+    if (!paceContext.value.isSpeed) return null;
+    const speed = numbers.value[0];
+    if (speed <= 0 || !isFinite(speed)) return null;
+    const totalSec = (60 / speed) * 60;
+    const min = Math.floor(totalSec / 60);
+    const sec = Math.round(totalSec % 60);
+    if (sec === 60) return `${min + 1}:00 /km`;
+    return `${min}:${String(sec).padStart(2, '0')} /km`;
+});
+
+// 结果单位：仅当表达式含物理单位时显示
+const resultUnit = computed(() => {
+    if (!displayResult.value || numbers.value.length !== 1) return '';
+    const { hasTime, hasDist, isSpeed } = paceContext.value;
+    if (isSpeed) return 'km/h';                              // 速度
+    if (hasTime && !hasDist) return 'h';                     // 纯时间
+    if (hasDist && !hasTime) return 'km';                    // 纯距离
+    return '';
+});
 
 // 计算器按键处理
 const calcKeys = [
@@ -28,11 +62,13 @@ const calcKeys = [
     ['0', '.', '⌫', '+'],
     ['(', ')', '^', '%'],
 ];
-const calcFuncKeys = ['sin(', 'cos(', 'tan(', 'sqrt(', 'ln(', 'pi', 'abs(', 'pow('];
+const calcFuncKeys = [];
 
 function calcKeyTap(key) {
     if (key === '⌫') {
         inputText.value = inputText.value.slice(0, -1);
+    } else if (key === 'Space') {
+        inputText.value += ' ';
     } else if (key === '÷') {
         inputText.value += '/';
     } else if (key === '×') {
@@ -44,25 +80,14 @@ function calcKeyTap(key) {
     }
 }
 
-function calcFuncTap(fn) {
-    const trimmed = inputText.value.trim();
-    const isNumber = trimmed !== '' && !isNaN(Number(trimmed)) && isFinite(Number(trimmed));
-    if (fn === 'sin(' || fn === 'cos(' || fn === 'tan(' || fn === 'sqrt(' || fn === 'ln(' || fn === 'abs(') {
-        if (isNumber) {
-            inputText.value = fn + trimmed + ')';
-        } else {
-            inputText.value = trimmed ? trimmed + ' ' + fn : fn;
-        }
-    } else if (fn === 'pow(') {
-        inputText.value = trimmed ? trimmed + ' ' + fn : fn;
-    } else if (fn === 'pi') {
-        inputText.value = trimmed ? trimmed + ' pi' : 'pi';
-    }
-}
+function calcFuncTap(fn) { }
 
 function calcClear() {
     inputText.value = '';
     errorMsg.value = '';
+    displayResult.value = null;
+    lastInput.value = '';
+    numbers.value = [];
 }
 
 // 支持的数学函数提示
@@ -82,7 +107,7 @@ const functionHints = [
     "nCr(n,r)", "nPr(n,r)", "x!", "x%",
     "hex2dec(x)", "bin2dec(x)",
     // 常量/字面量
-    "pi", "e", "tau", "0xff", "0b10", "0o7",
+    "pi", "e", "km", "Hour", "Min", "Second",
 ];
 
 // 每个预设的 hover 提示
@@ -98,8 +123,9 @@ const hintTooltips = {
     "mod(x,y)": "取模", "deg(x)": "弧度→度", "rad(x)": "度→弧度",
     "nCr(n,r)": "组合数 C(n,r)", "nPr(n,r)": "排列数 P(n,r)", "x!": "阶乘", "x%": "百分比 ÷100",
     "hex2dec(x)": "十六进制→十进制", "bin2dec(x)": "二进制→十进制",
-    "pi": "圆周率 π≈3.1416", "e": "自然常数 e≈2.7183", "tau": "τ=2π≈6.2832",
-    "0xff": "十六进制字面量", "0b10": "二进制字面量", "0o7": "八进制字面量",
+    "pi": "圆周率 π≈3.1416", "e": "自然常数 e≈2.7183",
+    "km": "千米 (=1) · 距离单位", "Hour": "小时 (=1) · 时间单位",
+    "Min": "分钟 (=1/60h) · 时间单位", "Second": "秒 (=1/3600h) · 简写 sec",
 };
 
 // 计算结果统计
@@ -225,19 +251,19 @@ function npr(n, r) {
     return Math.round(factorial(n) / factorial(n - r));
 }
 
-// 深色模式切换
-function toggleDarkMode() {
-    darkMode.value = !darkMode.value;
+function clearResults() {
+    numbers.value = [];
+    errorMsg.value = "";
+    displayResult.value = null;
 }
 
 // 历史记录点击复用
 function fillFromHistory(item) {
-    mode.value = "keyboard";
     inputText.value = item.nums ? item.nums.map(formatNum).join(" ") : item.input;
     errorMsg.value = "";
 }
 
-// 快捷粘贴：逗号/空格/换行分隔的数字批量计算
+// 批量粘贴处理
 function handleQuickPaste() {
     errorMsg.value = "";
     const raw = quickPasteText.value.trim();
@@ -290,6 +316,26 @@ function copyGradeTable() {
 // 将数学表达式字符串转换为可求值的形式
 function prepareExpression(expr) {
     let prepared = expr.trim().toLowerCase();
+    // 隐式乘法：数字与变量、变量与变量之间自动补 *
+    const unitVars = 'km|hour|min|second|sec|pi|e';
+    const timeVars = 'hour|min|second|sec';
+    // 数字+单位 → 乘法: 5 km → 5*km, 30 min → 30*min
+    prepared = prepared.replace(new RegExp(`(\\d)\\s+(${unitVars})\\b`, 'g'), '$1*$2');
+    // 时间单位+数字 → 加法: min 30 → min + 30  (30*min 30*sec → 30*min + 30*sec)
+    prepared = prepared.replace(new RegExp(`\\b(${timeVars})\\s+(\\d)`, 'g'), '$1 + $2');
+    // 距离+数字 → 乘法: km 5 → km*5
+    prepared = prepared.replace(new RegExp(`\\b(km)\\s+(\\d)`, 'g'), '$1*$2');
+    // 单位+单位 → 乘法: km hour → km*hour
+    prepared = prepared.replace(new RegExp(`\\b(${unitVars})\\s+(${unitVars})\\b`, 'g'), '$1*$2');
+    // 无空格: 5km → 5*km
+    prepared = prepared.replace(new RegExp(`(\\d)(${unitVars})\\b`, 'g'), '$1*$2');
+    // 除法后时间表达式 → 括号包裹:
+    // "5*km / 30*min" → "5*km / (30*min)"
+    // "5*km / 30*min + 30*sec" → "5*km / (30*min + 30*sec)"
+    prepared = prepared.replace(
+        new RegExp(`/\\s*(\\d+(?:\\.\\d+)?\\s*\\*\\s*(?:${timeVars})\\b(?:\\s*\\+\\s*\\d+(?:\\.\\d+)?\\s*\\*\\s*(?:${timeVars})\\b)*)`, 'g'),
+        (_, terms) => `/(${terms.trim()})`
+    );
     // 百分号
     prepared = prepared.replace(/(\d+\.?\d*)%/g, "($1/100)");
     // 阶乘
@@ -337,9 +383,6 @@ function prepareExpression(expr) {
     // 进制换算: hex2dec(ff) → parseInt("ff",16), bin2dec(1010) → parseInt("1010",2)
     prepared = prepared.replace(/\bhex2dec\(([a-f0-9]+)\)/g, 'parseInt("$1",16)');
     prepared = prepared.replace(/\bbin2dec\(([01]+)\)/g, 'parseInt("$1",2)');
-    // 常量 tau = 2*pi
-    prepared = prepared.replace(/\btau\b/g, "(2*Math.PI)");
-
     prepared = prepared.replace(/\^/g, "**");
     return prepared;
 }
@@ -348,7 +391,7 @@ function prepareExpression(expr) {
 function evaluateSingle(expr) {
     const prepared = prepareExpression(expr);
     // 使用 Function 构造器进行求值
-    const result = new Function("Math", "factorial", "ncr", "npr", `"use strict"; return (${prepared});`)(Math, factorial, ncr, npr);
+    const result = new Function("Math", "factorial", "ncr", "npr", "km", "Hour", "Min", "Second", "hour", "min", "second", "sec", `"use strict"; return (${prepared});`)(Math, factorial, ncr, npr, 1, 1, 1 / 60, 1 / 3600, 1, 1 / 60, 1 / 3600, 1 / 3600);
     const num = Number(result);
     if (isNaN(num) || !isFinite(num)) {
         throw new Error(`表达式 "${expr}" 结果不是有效数字`);
@@ -385,20 +428,30 @@ function insertHint(hint) {
 // 键盘输入处理
 function handleKeyboardSubmit() {
     errorMsg.value = "";
+    displayResult.value = null;
     const input = inputText.value.trim();
     if (!input) return;
 
     try {
         const nums = [];
-        // 先尝试将整行作为一个表达式求值（如 "1 + 3"）
-        try {
-            nums.push(evaluateSingle(input));
-        } catch {
-            // 整行求值失败，按空格分割逐个求值（如 "1 2 3"）
-            const tokens = input.split(/\s+/);
+        // 包含逗号或换行 → 直接按分隔符处理
+        if (/[,\n]/.test(input)) {
+            const tokens = input.split(/[,\s\n]+/);
             for (const token of tokens) {
                 if (!token) continue;
                 nums.push(evaluateSingle(token));
+            }
+        } else {
+            // 先尝试将整行作为一个表达式求值（如 "1 + 3"）
+            try {
+                nums.push(evaluateSingle(input));
+            } catch {
+                // 整行求值失败，按空格分割逐个求值（如 "1 2 3"）
+                const tokens = input.split(/\s+/);
+                for (const token of tokens) {
+                    if (!token) continue;
+                    nums.push(evaluateSingle(token));
+                }
             }
         }
         if (nums.length === 0) {
@@ -407,6 +460,10 @@ function handleKeyboardSubmit() {
         }
         numbers.value = nums;
         addHistory("键盘", inputText.value, nums);
+        lastInput.value = inputText.value;
+        // 屏幕显示总和
+        const sum = nums.reduce((a, b) => a + b, 0);
+        displayResult.value = nums.length > 1 ? formatNum(sum) : formatNum(nums[0]);
         inputText.value = "";
     } catch (err) {
         errorMsg.value = err.message || String(err);
@@ -427,416 +484,443 @@ function addHistory(source, input, nums) {
     if (history.value.length > 20) history.value.pop();
 }
 
-function goBack() {
-    mode.value = "menu";
-    numbers.value = [];
-    errorMsg.value = "";
-}
-
-function clearResults() {
-    numbers.value = [];
-    errorMsg.value = "";
-}
-
 function formatNum(n) {
     return Number.isInteger(n) ? n.toString() : n.toFixed(4);
 }
 </script>
 
 <template>
-    <div class="calculator" :class="{ dark: darkMode }">
-        <!-- 标题 -->
-        <header class="header">
-            <div class="logo">🧮</div>
-            <h1>Any Calculator</h1>
-            <p class="subtitle">支持表达式计算 · 统计分析</p>
-            <span class="author">by Alex</span>
-            <button class="dark-toggle" @click="toggleDarkMode" :title="darkMode ? '切换亮色' : '切换深色'">
-                {{ darkMode ? '☀️' : '🌙' }}
-            </button>
-        </header>
-
-        <!-- 主菜单 -->
-        <div v-if="mode === 'menu'" class="menu">
-            <button class="menu-btn keyboard-btn" @click="mode = 'keyboard'">
-                <span class="btn-icon">⌨️</span>
-                <span class="btn-title">键盘输入</span>
-                <span class="btn-desc">手动输入数字或表达式</span>
-            </button>
-            <button class="menu-btn paste-btn" @click="mode = 'paste'">
-                <span class="btn-icon">📋</span>
-                <span class="btn-title">快捷粘贴</span>
-                <span class="btn-desc">粘贴逗号/空格分隔的数字，快速统计</span>
-            </button>
-        </div>
-
-        <!-- 键盘输入模式 -->
-        <div v-if="mode === 'keyboard'" class="input-panel">
-            <div class="panel-header">
-                <button class="back-btn" @click="goBack">← 返回</button>
-                <h2>⌨️ 键盘输入</h2>
-            </div>
-            <div class="hints">
-                <span v-for="h in functionHints" :key="h" class="hint-tag" :data-tooltip="hintTooltips[h] || h"
-                    @click="insertHint(h)">
-                    {{ h }}
-                </span>
-            </div>
-            <p class="hint-text">支持表达式，如: <code>0xff</code> <code>hex2dec(ff)</code> <code>bin2dec(1010)</code>
-                <code>sind(90)</code> <code>5!</code> <code>100*15%</code>
-            </p>
-            <div class="input-row">
-                <input v-model="inputText" class="text-input" placeholder="输入数字或表达式，用空格分隔..."
-                    @keyup.enter="handleKeyboardSubmit" />
-                <button class="action-btn primary" :disabled="!inputText.trim()" @click="handleKeyboardSubmit">
-                    计算
-                </button>
-            </div>
-            <p v-if="previewResult" class="preview-result">💡 {{ previewResult.value }}</p>
-            <p v-if="errorMsg" class="error-msg">❌ {{ errorMsg }}</p>
-
-            <!-- 计算器键盘切换 -->
-            <div class="calc-pad-toggle">
-                <button class="toggle-pad-btn" @click="showCalcPad = !showCalcPad">
-                    {{ showCalcPad ? '🔽 收起键盘' : '🔼 展开触屏键盘' }}
-                </button>
-            </div>
-
-            <!-- 计算器触屏按键面板 -->
-            <div v-if="showCalcPad" class="calc-pad">
-                <!-- 函数快捷键行 -->
-                <div class="calc-func-row">
-                    <button
-                        v-for="fn in calcFuncKeys"
-                        :key="fn"
-                        class="calc-btn func"
-                        @click="calcFuncTap(fn)"
-                    >{{ fn }}</button>
+    <div class="page">
+        <div class="drag-bar"></div>
+        <div class="calc-dual">
+            <!-- ====== 左侧：计算器 ====== -->
+            <div class="calc-body" :class="{ 'panel-hidden': showStats }">
+                <div class="calc-top-bar">
+                    <span class="calc-brand">Alex Calculator</span>
+                    <span class="calc-model">SC-100</span>
                 </div>
-                <!-- 数字/运算符按键网格 -->
-                <div class="calc-grid">
-                    <template v-for="row in calcKeys" :key="row.join('')">
-                        <button
-                            v-for="key in row"
-                            :key="key"
-                            class="calc-btn"
-                            :class="{
+
+                <div class="calc-screen">
+                    <div class="screen-status">
+                        <span class="status-mode">COMP</span>
+                        <span v-if="stats" class="status-stat">STAT</span>
+                        <span class="status-mem" v-if="history.length">M</span>
+                        <span class="status-bat">▮▮▮</span>
+                    </div>
+                    <div class="screen-expr" v-if="displayResult && lastInput">
+                        {{ lastInput }}
+                    </div>
+                    <div class="screen-input">
+                        <input v-model="inputText" class="screen-input-field" placeholder="输入表达式，逗号/空格分隔多值..."
+                            @keyup.enter="handleKeyboardSubmit" />
+                    </div>
+                    <div class="screen-output">
+                        <div class="output-row">
+                            <span v-if="displayResult" class="output-value">{{ displayResult }}<span v-if="resultUnit"
+                                    class="output-unit"> {{ resultUnit }}</span></span>
+                            <span v-else-if="previewResult" class="output-value dim">{{ previewResult.value }}</span>
+                            <span v-if="displayResult && paceText" class="output-pace" @click="showPace = !showPace"
+                                title="点击切换配速显示">{{ paceText }}</span>
+                        </div>
+                        <span v-if="errorMsg" class="output-error">{{ errorMsg }}</span>
+                    </div>
+                    <div class="screen-stats" v-if="stats">
+                        <span>n={{ stats.count }}</span>
+                        <span>Σ={{ formatNum(stats.sum) }}</span>
+                        <span>x̄={{ formatNum(stats.avg) }}</span>
+                        <span>σ={{ formatNum(stats.stddev) }}</span>
+                        <span>min={{ formatNum(stats.min) }}</span>
+                        <span>max={{ formatNum(stats.max) }}</span>
+                    </div>
+                </div>
+
+                <div class="calc-hints-area">
+                    <span v-for="h in functionHints" :key="h" class="hint-tag"
+                        :class="{ 'hint-pace': paceHints.has(h) }" :data-tooltip="hintTooltips[h] || h"
+                        @click="insertHint(h)">{{ h }}</span>
+                </div>
+
+                <div class="calc-keypad">
+                    <div class="calc-grid">
+                        <template v-for="row in calcKeys" :key="row.join('')">
+                            <button v-for="key in row" :key="key" class="calc-btn" :class="{
                                 'calc-num': key >= '0' && key <= '9' || key === '.',
-                                'calc-op': ['÷','×','−','+','^','%'].includes(key),
+                                'calc-op': ['÷', '×', '−', '+', '^', '%'].includes(key),
                                 'calc-paren': key === '(' || key === ')',
                                 'calc-del': key === '⌫',
-                            }"
-                            @click="calcKeyTap(key)"
-                        >{{ key }}</button>
-                    </template>
-                </div>
-                <!-- 底栏：清除 + 计算 -->
-                <div class="calc-bottom-row">
-                    <button class="calc-btn calc-clear" @click="calcClear">C</button>
-                    <button class="calc-btn calc-equals" @click="handleKeyboardSubmit">=</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- 快捷粘贴模式 -->
-        <div v-if="mode === 'paste'" class="input-panel">
-            <div class="panel-header">
-                <button class="back-btn" @click="goBack">← 返回</button>
-                <h2>📋 快捷粘贴</h2>
-            </div>
-            <p class="hint-text">粘贴逗号、空格或换行分隔的数字，自动批量计算统计</p>
-            <div class="input-col">
-                <textarea v-model="quickPasteText" class="paste-textarea"
-                    placeholder="在此粘贴数据，例如：&#10;1, 2, 3, 4, 5&#10;或&#10;10 20 30" rows="5"></textarea>
-                <button class="action-btn primary" :disabled="!quickPasteText.trim()" @click="handleQuickPaste">
-                    统计
-                </button>
-            </div>
-            <p v-if="errorMsg" class="error-msg">❌ {{ errorMsg }}</p>
-        </div>
-
-        <!-- 结果面板 -->
-        <div v-if="stats" class="results">
-            <div class="results-header">
-                <h2>📊 计算结果</h2>
-                <button class="action-btn small" @click="clearResults">清除</button>
-            </div>
-            <div class="stats-grid">
-                <div class="stat-card" @click="copyToClipboard(stats.count, 0)">
-                    <span class="stat-label">数字个数</span>
-                    <span class="stat-value">{{ stats.count }}</span>
-                    <span class="copy-hint" v-if="copiedIdx === 0">✅ 已复制</span>
-                    <span class="copy-hint" v-else>📋</span>
-                </div>
-                <div class="stat-card" @click="copyToClipboard(formatNum(stats.sum), 1)">
-                    <span class="stat-label">总和</span>
-                    <span class="stat-value">{{ formatNum(stats.sum) }}</span>
-                    <span class="copy-hint" v-if="copiedIdx === 1">✅ 已复制</span>
-                    <span class="copy-hint" v-else>📋</span>
-                </div>
-                <div class="stat-card" @click="copyToClipboard(formatNum(stats.max), 2)">
-                    <span class="stat-label">最大值</span>
-                    <span class="stat-value highlight-max">{{ formatNum(stats.max) }}</span>
-                    <span class="copy-hint" v-if="copiedIdx === 2">✅ 已复制</span>
-                    <span class="copy-hint" v-else>📋</span>
-                </div>
-                <div class="stat-card" @click="copyToClipboard(formatNum(stats.min), 3)">
-                    <span class="stat-label">最小值</span>
-                    <span class="stat-value highlight-min">{{ formatNum(stats.min) }}</span>
-                    <span class="copy-hint" v-if="copiedIdx === 3">✅ 已复制</span>
-                    <span class="copy-hint" v-else>📋</span>
-                </div>
-                <div class="stat-card accent" @click="copyToClipboard(formatNum(stats.avg), 4)">
-                    <span class="stat-label">平均值</span>
-                    <span class="stat-value">{{ formatNum(stats.avg) }}</span>
-                    <span class="copy-hint" v-if="copiedIdx === 4">✅ 已复制</span>
-                    <span class="copy-hint" v-else>📋</span>
-                </div>
-                <div class="stat-card" @click="copyToClipboard(formatNum(stats.median), 5)">
-                    <span class="stat-label">中位数</span>
-                    <span class="stat-value">{{ formatNum(stats.median) }}</span>
-                    <span class="copy-hint" v-if="copiedIdx === 5">✅ 已复制</span>
-                    <span class="copy-hint" v-else>📋</span>
-                </div>
-                <div class="stat-card" @click="copyToClipboard(formatNum(stats.stddev), 6)">
-                    <span class="stat-label">标准差</span>
-                    <span class="stat-value">{{ formatNum(stats.stddev) }}</span>
-                    <span class="copy-hint" v-if="copiedIdx === 6">✅ 已复制</span>
-                    <span class="copy-hint" v-else>📋</span>
-                </div>
-                <div class="stat-card" @click="copyToClipboard(formatNum(stats.range), 7)">
-                    <span class="stat-label">极差</span>
-                    <span class="stat-value">{{ formatNum(stats.range) }}</span>
-                    <span class="copy-hint" v-if="copiedIdx === 7">✅ 已复制</span>
-                    <span class="copy-hint" v-else>📋</span>
+                            }" @click="calcKeyTap(key)">{{ key }}</button>
+                        </template>
+                    </div>
+                    <div class="calc-space-row">
+                        <button class="calc-btn calc-space" @click="calcKeyTap('Space')">SPACE</button>
+                    </div>
+                    <div class="calc-bottom-row" :class="{ 'has-detail': stats }">
+                        <button class="calc-btn calc-clear" @click="calcClear">AC</button>
+                        <button class="calc-btn calc-equals" @click="handleKeyboardSubmit">=</button>
+                        <button v-if="stats" class="calc-btn calc-detail" @click="showStats = true">DETAIL</button>
+                    </div>
                 </div>
             </div>
 
-            <!-- 等级评定开关 -->
-            <label class="grade-toggle" v-if="rankedData.length > 0"
-                data-tooltip="按分位百分比自动划分 A/B/C/D 四档，滑块可调阈值。适合考试成绩、绩效排名等场景">
-                <input type="checkbox" v-model="showGrade" />
-                <span>📊 等级评定</span>
-            </label>
-            <p v-if="showGrade && rankedData.length > 0" class="grade-hint">
-                💡 按分位%自动分档，拖动滑块调整 A/B/C/D 阈值。适用于考试成绩、绩效评分等需要排名分等的场景
-            </p>
+            <!-- ====== 右侧：统计信息面板 ====== -->
+            <div class="calc-info" :class="{ 'panel-hidden': !showStats }">
+                <div class="info-top-bar">
+                    <span class="info-brand">STAT</span>
+                    <button class="info-back-btn" @click="showStats = false">← 返回</button>
+                </div>
+                <div class="info-lcd">
+                    <div v-if="!stats && history.length === 0" class="info-empty">
+                        <span class="info-empty-icon">📊</span>
+                        <p>输入数据后将在此显示统计结果</p>
+                    </div>
 
-            <!-- 等级评定 -->
-            <div v-if="showGrade" class="grade-section">
-                <div class="grade-header">
-                    <span>📊 等级评定</span>
-                    <div class="grade-header-right">
-                        <button class="copy-table-btn" @click="copyGradeTable">
-                            {{ gradeTableCopied ? '✅ 已复制' : '📋 复制表格' }}
-                        </button>
-                        <div class="grade-dist">
-                            <span class="grade-badge a">A {{ gradeCounts.A }}</span>
-                            <span class="grade-badge b">B {{ gradeCounts.B }}</span>
-                            <span class="grade-badge c">C {{ gradeCounts.C }}</span>
-                            <span class="grade-badge d">D {{ gradeCounts.D }}</span>
+                    <div v-if="stats" class="info-stats">
+                        <div class="info-title">统计结果</div>
+                        <div class="info-grid">
+                            <div class="info-item" @click="copyToClipboard(stats.count, 0)">
+                                <span class="info-label">个数</span>
+                                <span class="info-val">{{ stats.count }}</span>
+                            </div>
+                            <div class="info-item" @click="copyToClipboard(formatNum(stats.sum), 1)">
+                                <span class="info-label">总和</span>
+                                <span class="info-val">{{ formatNum(stats.sum) }}</span>
+                            </div>
+                            <div class="info-item" @click="copyToClipboard(formatNum(stats.avg), 4)">
+                                <span class="info-label">平均值</span>
+                                <span class="info-val">{{ formatNum(stats.avg) }}</span>
+                            </div>
+                            <div class="info-item" @click="copyToClipboard(formatNum(stats.median), 5)">
+                                <span class="info-label">中位数</span>
+                                <span class="info-val">{{ formatNum(stats.median) }}</span>
+                            </div>
+                            <div class="info-item" @click="copyToClipboard(formatNum(stats.stddev), 6)">
+                                <span class="info-label">标准差</span>
+                                <span class="info-val">{{ formatNum(stats.stddev) }}</span>
+                            </div>
+                            <div class="info-item" @click="copyToClipboard(formatNum(stats.max), 2)">
+                                <span class="info-label">最大值</span>
+                                <span class="info-val hi">{{ formatNum(stats.max) }}</span>
+                            </div>
+                            <div class="info-item" @click="copyToClipboard(formatNum(stats.min), 3)">
+                                <span class="info-label">最小值</span>
+                                <span class="info-val lo">{{ formatNum(stats.min) }}</span>
+                            </div>
+                            <div class="info-item" @click="copyToClipboard(formatNum(stats.range), 7)">
+                                <span class="info-label">极差</span>
+                                <span class="info-val">{{ formatNum(stats.range) }}</span>
+                            </div>
+                        </div>
+                        <button class="info-clear-btn" @click="clearResults">清除结果</button>
+                    </div>
+
+                    <div class="info-grade" v-if="stats && rankedData.length > 0">
+                        <div class="info-title" @click="showGrade = !showGrade" style="cursor:pointer">
+                            等级评定 {{ showGrade ? '▾' : '▸' }}
+                        </div>
+                        <div v-show="showGrade">
+                            <div class="grade-sliders">
+                                <label>A/B <span>{{ aBound }}%</span></label>
+                                <input type="range" min="0" max="100" v-model.number="aBound" />
+                                <label>B/C <span>{{ bBound }}%</span></label>
+                                <input type="range" min="0" max="100" v-model.number="bBound" />
+                                <label>C/D <span>{{ cBound }}%</span></label>
+                                <input type="range" min="0" max="100" v-model.number="cBound" />
+                            </div>
+                            <div class="grade-dist">
+                                <span class="grade-badge a">A {{ gradeCounts.A }}</span>
+                                <span class="grade-badge b">B {{ gradeCounts.B }}</span>
+                                <span class="grade-badge c">C {{ gradeCounts.C }}</span>
+                                <span class="grade-badge d">D {{ gradeCounts.D }}</span>
+                            </div>
+                            <div class="grade-table-wrap">
+                                <table class="rank-table">
+                                    <thead>
+                                        <tr>
+                                            <th @click="toggleGradeSort('rank')">#</th>
+                                            <th @click="toggleGradeSort('raw')">值</th>
+                                            <th @click="toggleGradeSort('pct')">%</th>
+                                            <th @click="toggleGradeSort('grade')">等</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr v-for="r in sortedGradeData" :key="r.idx" :class="'grade-' + r.grade">
+                                            <td class="col-rank">#{{ r.rank }}</td>
+                                            <td>{{ formatNum(r.raw) }}</td>
+                                            <td>{{ r.pct }}%</td>
+                                            <td class="col-grade">{{ r.grade }}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-if="history.length > 0" class="info-history">
+                        <div class="info-title">历史记录</div>
+                        <div class="history-list">
+                            <div v-for="item in history" :key="item.id" class="history-item"
+                                @click="fillFromHistory(item)">
+                                <span class="history-input">{{ item.input }}</span>
+                                <span class="history-result">{{ item.count }}个 · {{ formatNum(item.avg) }}</span>
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div class="grade-sliders">
-                    <label>A/B <span>{{ aBound }}%</span></label>
-                    <input type="range" min="0" max="100" v-model.number="aBound" />
-                    <label>B/C <span>{{ bBound }}%</span></label>
-                    <input type="range" min="0" max="100" v-model.number="bBound" />
-                    <label>C/D <span>{{ cBound }}%</span></label>
-                    <input type="range" min="0" max="100" v-model.number="cBound" />
-                </div>
-                <div class="grade-table-wrap">
-                    <table class="rank-table">
-                        <thead>
-                            <tr>
-                                <th class="sortable" @click="toggleGradeSort('idx')">
-                                    序号<span class="sort-arrow">{{ sortArrowFor('idx') }}</span>
-                                </th>
-                                <th class="sortable" @click="toggleGradeSort('raw')">
-                                    数值<span class="sort-arrow">{{ sortArrowFor('raw') }}</span>
-                                </th>
-                                <th class="sortable" @click="toggleGradeSort('rank')">
-                                    排名<span class="sort-arrow">{{ sortArrowFor('rank') }}</span>
-                                </th>
-                                <th class="sortable" @click="toggleGradeSort('pct')">
-                                    分位%<span class="sort-arrow">{{ sortArrowFor('pct') }}</span>
-                                </th>
-                                <th class="sortable" @click="toggleGradeSort('grade')">
-                                    等级<span class="sort-arrow">{{ sortArrowFor('grade') }}</span>
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr v-for="r in sortedGradeData" :key="r.idx" :class="'grade-' + r.grade">
-                                <td class="col-idx">{{ r.idx }}</td>
-                                <td class="col-val">{{ formatNum(r.raw) }}</td>
-                                <td class="col-rank">#{{ r.rank }}</td>
-                                <td class="col-pct">{{ r.pct }}%</td>
-                                <td class="col-grade">{{ r.grade }}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- 数字列表 -->
-            <details class="number-list">
-                <summary>查看所有数字 ({{ numbers.length }})</summary>
-                <div class="number-tags">
-                    <span v-for="(n, i) in numbers" :key="i" class="number-tag">{{ formatNum(n) }}</span>
-                </div>
-            </details>
-        </div>
-
-        <!-- 历史记录 -->
-        <div v-if="history.length > 0" class="history">
-            <h3>📝 历史记录</h3>
-            <div class="history-list">
-                <div v-for="item in history" :key="item.id" class="history-item" @click="fillFromHistory(item)">
-                    <span class="history-source">{{ item.source === "键盘" ? "⌨️" : "📋"
-                        }}</span>
-                    <span class="history-input">{{ item.input }}</span>
-                    <span class="history-result">
-                        {{ item.count }}个 · 平均{{ formatNum(item.avg) }}
-                    </span>
-                    <span class="history-time">{{ item.time }}</span>
-                </div>
             </div>
         </div>
-
     </div>
 </template>
 
 <style scoped>
-.calculator {
+/* 窗口拖拽手柄 */
+.calc-dual {
+    display: flex;
+    gap: 14px;
+    align-items: stretch;
+    max-width: 760px;
     width: 100%;
-    height: 100vh;
-    background: #fff;
-    padding: 24px 28px;
+    height: calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    max-height: 820px;
+    padding-top: 20px;
+    position: relative;
+}
+
+/* 顶部拖拽条 */
+.drag-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 32px;
+    -webkit-app-region: drag;
+    z-index: 100;
+}
+
+.page {
+    width: 100%;
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: transparent;
+    padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+/* ---- 顶部品牌栏 ---- */
+.calc-top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 4px 10px;
+}
+
+.calc-body {
+    flex: 1;
+    max-width: 350px;
+    background: #2d3436;
+    border-radius: 18px;
+    padding: 14px 14px 18px;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, .35),
+        0 2px 8px rgba(0, 0, 0, .2),
+        inset 0 1px 0 rgba(255, 255, 255, .06);
+    display: flex;
+    flex-direction: column;
     overflow-y: auto;
+    overflow-x: visible;
 }
 
-/* Header */
-.header {
-    text-align: center;
-    margin-bottom: 28px;
+.calc-brand {
+    font-size: 14px;
+    font-weight: 800;
+    color: #8b9094;
+    letter-spacing: 2px;
+    font-family: "Helvetica Neue", "PingFang SC", sans-serif;
 }
 
-.logo {
-    font-size: 32px;
-    margin-bottom: 4px;
-}
-
-.header h1 {
-    font-size: 20px;
+.calc-model {
+    font-size: 10px;
+    color: #5a5f63;
     font-weight: 600;
-    color: #1a1a2e;
 }
 
-.subtitle {
-    color: #999;
-    font-size: 13px;
+.dark-toggle {
+    background: none;
+    border: 1px solid #4a5054;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all .2s;
+    color: #8b9094;
+}
+
+.dark-toggle:hover {
+    background: #3d4347;
+    border-color: #6c757d;
+}
+
+/* ---- LCD 显示屏 ---- */
+.calc-screen {
+    background: #d5d8dc;
+    border: 3px solid #1a1c1d;
+    border-radius: 6px;
+    padding: 10px 14px 10px;
+    margin-bottom: 10px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    font-family: "Courier New", "SF Mono", "Fira Code", monospace;
+}
+
+.screen-status {
+    display: flex;
+    gap: 8px;
+    font-size: 9px;
+    color: #6a7074;
+    margin-bottom: 2px;
+    letter-spacing: 1px;
+}
+
+.status-mode {
+    flex: 1;
+}
+
+.status-stat {
+    color: #4a5a8a;
+    font-weight: 600;
+}
+
+.status-mem {
+    color: #6a7074;
+}
+
+.status-bat {
+    color: #5a6064;
+    margin-left: auto;
+}
+
+.screen-expr {
+    font-size: 11px;
+    color: #6a7074;
+    font-family: inherit;
+    padding: 2px 0;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.screen-input-field {
+    width: 100%;
+    background: none;
+    border: none;
+    outline: none;
+    font-size: 18px;
+    font-family: inherit;
+    color: #1a1c1d;
+    padding: 0;
+    line-height: 1.3;
+}
+
+.screen-input-field::placeholder {
+    color: #7a8085;
+}
+
+.screen-output {
+    text-align: right;
+    min-height: 28px;
     margin-top: 4px;
 }
 
-.author {
-    display: inline-block;
-    margin-top: 2px;
-    font-size: 11px;
-    color: #bbb;
-}
-
-/* Menu */
-.menu {
+.output-row {
     display: flex;
-    flex-direction: column;
-    gap: 12px;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 8px;
 }
 
-.menu-btn {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding: 22px 14px;
-    border: 1.5px solid #eee;
-    border-radius: 10px;
-    background: #fafafa;
-    cursor: pointer;
-    transition: all .2s;
-    color: #333;
+.output-value {
+    font-size: 26px;
+    font-weight: 800;
+    color: #111;
 }
 
-.menu-btn:hover {
-    border-color: #6366f1;
-    background: #f5f3ff;
+.output-value.dim {
+    color: #8a9094;
 }
 
-.btn-icon {
-    font-size: 28px;
-}
-
-.btn-title {
+.output-unit {
     font-size: 14px;
     font-weight: 600;
+    color: #8b9094;
+    margin-left: 2px;
 }
 
-.btn-desc {
-    font-size: 11px;
-    color: #999;
-}
-
-/* Input Panel */
-.input-panel {
-    animation: fadeIn .25s ease;
-}
-
-.panel-header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 16px;
-}
-
-.panel-header h2 {
-    font-size: 17px;
-    font-weight: 600;
-    color: #1a1a2e;
-}
-
-.back-btn {
-    background: none;
-    border: 1px solid #ddd;
-    color: #666;
-    padding: 4px 12px;
-    border-radius: 6px;
+.output-pace {
+    font-size: 14px;
+    font-weight: 700;
+    color: #f6851b;
+    background: #fff5ee;
+    padding: 2px 8px;
+    border-radius: 4px;
     cursor: pointer;
-    font-size: 12px;
+    user-select: none;
     transition: all .15s;
+    white-space: nowrap;
 }
 
-.back-btn:hover {
-    background: #f5f5f5;
-    color: #333;
+.output-pace:hover {
+    background: #ffe8d6;
+    color: #e07510;
 }
 
-.hints {
+.output-error {
+    font-size: 13px;
+    color: #8b2020;
+}
+
+.screen-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    font-size: 9px;
+    color: #5a6064;
+    margin-top: 6px;
+    letter-spacing: .3px;
+    padding-top: 4px;
+    border-top: 1px solid #c0c4c8;
+}
+
+/* ---- 预设函数矩阵 ---- */
+.calc-hints-area {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
-    gap: 5px;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 3px;
     margin-bottom: 10px;
+    padding: 0 2px;
+    overflow: visible;
+    z-index: 5;
 }
 
 .hint-tag {
     position: relative;
-    display: inline-block;
-    padding: 3px 6px;
-    font-size: 11px;
-    background: #f5f3ff;
-    border: 1px solid #e8e5ff;
-    border-radius: 4px;
-    color: #6366f1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 2px;
+    font-size: 10px;
+    overflow: visible;
+    text-overflow: ellipsis;
+    background: #3d4347;
+    border: 1px solid #4a5054;
+    border-radius: 3px;
+    color: #c8cdd0;
     cursor: pointer;
     transition: all .15s;
     font-family: "SF Mono", "Fira Code", monospace;
@@ -845,9 +929,22 @@ function formatNum(n) {
 }
 
 .hint-tag:hover {
-    background: #ede9fe;
-    border-color: #6366f1;
-    z-index: 10;
+    background: #4a5054;
+    border-color: #6c757d;
+    z-index: 20;
+}
+
+/* 配速按钮：橙色高亮 */
+.hint-pace {
+    background: #3d3028;
+    border-color: #8b6914;
+    color: #f5c842;
+}
+
+.hint-pace:hover {
+    background: #5a4530;
+    border-color: #c5951a;
+    color: #fad84a;
 }
 
 /* 自定义 tooltip */
@@ -1575,223 +1672,365 @@ tr.grade-D .col-grade {
     background: #f0f0f0;
 }
 
-/* ==================== 深色模式 ==================== */
-.dark.calculator {
-    background: #1a1a2e;
+/* ====== 深色模式（已移除，使用默认 Casio 主题）====== */
+
+
+/* ====== 右侧：彩色 LCD 统计面板 ====== */
+.calc-info {
+    flex: 1;
+    max-width: 350px;
+    background: #2d3436;
+    border-radius: 18px;
+    padding: 12px 14px 16px;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, .35),
+        0 2px 8px rgba(0, 0, 0, .2),
+        inset 0 1px 0 rgba(255, 255, 255, .06);
+    display: flex;
+    flex-direction: column;
 }
 
-.dark .header h1,
-.dark .panel-header h2,
-.dark .results-header h2 {
-    color: #e2e8f0;
+.info-top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 4px 8px;
 }
 
-.dark .subtitle {
-    color: #7c7f93;
+.info-brand {
+    font-size: 12px;
+    font-weight: 800;
+    color: #8b9094;
+    letter-spacing: 2px;
+    font-family: "Helvetica Neue", "PingFang SC", sans-serif;
 }
 
-.dark .author {
-    color: #5a5d73;
+.info-back-btn {
+    background: none;
+    border: 1px solid #4a5054;
+    border-radius: 4px;
+    color: #8b9094;
+    font-size: 10px;
+    padding: 3px 10px;
+    cursor: pointer;
+    transition: all .15s;
 }
 
-.dark .back-btn {
-    color: #94a3b8;
-    border-color: #334155;
+.info-back-btn:hover {
+    background: #3d4347;
+    color: #c0c4c8;
 }
 
-.dark .back-btn:hover {
-    background: #1e293b;
-    color: #e2e8f0;
+.info-lcd {
+    flex: 1;
+    background: #d5d8dc;
+    border: 3px solid #1a1c1d;
+    border-radius: 6px;
+    padding: 10px 12px;
+    overflow-y: auto;
+    font-size: 12px;
+    color: #333;
 }
 
-.dark .menu-btn {
-    background: #1e293b;
-    border-color: #334155;
-    color: #cbd5e1;
+.info-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #5a5f63;
+    text-align: center;
 }
 
-.dark .menu-btn:hover {
-    background: #312e81;
-    border-color: #6366f1;
+.info-empty-icon {
+    font-size: 48px;
+    display: block;
+    margin-bottom: 12px;
+    opacity: .5;
 }
 
-.dark .dark-toggle {
-    border-color: #334155;
+.info-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #8b9094;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #3d4347;
+    letter-spacing: 2px;
+    text-transform: uppercase;
 }
 
-.dark .dark-toggle:hover {
-    background: #1e293b;
+.info-stats,
+.info-grade,
+.info-history {
+    margin-bottom: 18px;
 }
 
-.dark .hint-tag {
-    background: #1e293b;
-    border-color: #334155;
-    color: #818cf8;
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 5px;
 }
 
-.dark .hint-tag:hover {
-    background: #312e81;
-    border-color: #818cf8;
+.info-item {
+    background: transparent;
+    border: 1px solid #c0c4c8;
+    border-radius: 5px;
+    padding: 7px 3px;
+    text-align: center;
+    cursor: pointer;
+    transition: all .15s;
 }
 
-.dark .hint-tag::after {
-    background: #e2e8f0;
-    color: #1a1a2e;
+.info-item:hover {
+    background: #c8ccd0;
+    border-color: #a0a8ac;
 }
 
-.dark .hint-tag::before {
-    border-top-color: #e2e8f0;
+.info-label {
+    display: block;
+    font-size: 7px;
+    color: #8a9094;
+    margin-bottom: 1px;
+    letter-spacing: .5px;
 }
 
-.dark .hint-text {
-    color: #7c7f93;
+.info-val {
+    font-size: 13px;
+    font-weight: 700;
+    font-family: "SF Mono", "Fira Code", monospace;
+    color: #2a2e30;
 }
 
-.dark .hint-text code {
-    background: #1e293b;
-    color: #818cf8;
+.info-val.hi {
+    color: #2d7a3a;
 }
 
-.dark .text-input,
-.dark .paste-textarea {
-    background: #1e293b;
-    border-color: #334155;
-    color: #e2e8f0;
+.info-val.lo {
+    color: #b03030;
 }
 
-.dark .text-input:focus,
-.dark .paste-textarea:focus {
-    border-color: #6366f1;
+.info-clear-btn {
+    width: 100%;
+    margin-top: 6px;
+    padding: 6px;
+    border: 1px solid #c0c4c8;
+    border-radius: 5px;
+    background: transparent;
+    color: #8a9094;
+    font-size: 10px;
+    cursor: pointer;
+    transition: all .15s;
 }
 
-.dark .text-input::placeholder,
-.dark .paste-textarea::placeholder {
-    color: #5a5d73;
+.info-clear-btn:hover {
+    background: #f0d0d4;
+    border-color: #d0a0a4;
+    color: #b03030;
 }
 
-.dark .file-drop-zone {
-    background: #1e293b;
-    border-color: #334155;
-    color: #94a3b8;
+/* 右侧等级评定 */
+.info-grade .grade-dist {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 8px;
 }
 
-.dark .file-drop-zone:hover {
-    background: #312e81;
-    border-color: #6366f1;
+.info-grade .grade-badge {
+    font-size: 10px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-weight: 600;
 }
 
-.dark .file-placeholder {
-    color: #5a5d73;
+.grade-badge.a {
+    background: #dcfce7;
+    color: #16a34a;
 }
 
-.dark .file-selected {
-    color: #818cf8;
+.grade-badge.b {
+    background: #dbeafe;
+    color: #2563eb;
 }
 
-.dark .stat-card {
-    background: #1e293b;
+.grade-badge.c {
+    background: #fef3c7;
+    color: #d97706;
 }
 
-.dark .stat-card:hover {
-    background: #312e81;
+.grade-badge.d {
+    background: #fee2e2;
+    color: #dc2626;
 }
 
-.dark .stat-label {
-    color: #7c7f93;
+.info-grade .grade-sliders {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 8px;
+    margin-bottom: 8px;
+    font-size: 10px;
+    color: #6a7074;
+    align-items: center;
 }
 
-.dark .stat-value {
-    color: #e2e8f0;
+.info-grade .grade-sliders label span {
+    font-weight: 600;
+    color: #6366f1;
 }
 
-.dark .error-msg {
-    background: #3b1016;
-    border-color: #791f26;
-    color: #fca5a5;
+.info-grade .grade-sliders input[type=range] {
+    width: 100%;
+    accent-color: #6366f1;
+    height: 3px;
 }
 
-.dark .preview-result {
-    background: #0d2818;
-    border-color: #14532d;
-    color: #86efac;
+.info-grade .grade-table-wrap {
+    max-height: 160px;
+    overflow-y: auto;
+    border: 1px solid #d0d5d8;
+    border-radius: 6px;
 }
 
-.dark .number-tag {
-    background: #1e293b;
-    color: #94a3b8;
+.info-grade .rank-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    font-family: "SF Mono", "Fira Code", monospace;
 }
 
-.dark .history {
-    border-color: #2d3748;
+.info-grade .rank-table th {
+    background: transparent;
+    color: #5a6064;
+    font-weight: 600;
+    padding: 4px 6px;
+    text-align: center;
+    border-bottom: 1px solid #c0c4c8;
+    font-size: 9px;
+    cursor: pointer;
+    user-select: none;
+    letter-spacing: 1px;
 }
 
-.dark .history h3 {
-    color: #7c7f93;
+.info-grade .rank-table td {
+    padding: 3px 6px;
+    text-align: center;
+    border-bottom: 1px solid #d8dbde;
+    color: #4a5054;
 }
 
-.dark .history-item {
-    background: #1e293b;
+.info-grade .rank-table tbody tr:hover {
+    background: #f5f6f7;
 }
 
-.dark .history-item:hover {
-    background: #283548;
+.info-grade .col-rank {
+    color: #6366f1;
+    font-weight: 600;
 }
 
-.dark .history-input {
-    color: #94a3b8;
+.info-grade .col-grade {
+    font-weight: 700;
 }
 
-.dark .history-time {
-    color: #5a5d73;
+.info-grade tr.grade-A .col-grade {
+    color: #16a34a;
 }
 
-.dark .number-list summary {
-    color: #7c7f93;
+.info-grade tr.grade-B .col-grade {
+    color: #2563eb;
 }
 
-.dark .rank-table-wrap {
-    border-color: #2d3748;
+.info-grade tr.grade-C .col-grade {
+    color: #d97706;
 }
 
-.dark .rank-table th {
-    background: #1e293b;
-    color: #7c7f93;
-    border-color: #2d3748;
+.info-grade tr.grade-D .col-grade {
+    color: #dc2626;
 }
 
-.dark .rank-table th.sortable:hover {
-    color: #818cf8;
+/* 右侧历史记录 */
+.info-history .history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-height: 180px;
+    overflow-y: auto;
 }
 
-.dark .rank-table td {
-    color: #94a3b8;
-    border-color: #283548;
+.info-history .history-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 8px;
+    background: transparent;
+    border: 1px solid #c0c4c8;
+    border-radius: 5px;
+    font-size: 10px;
+    cursor: pointer;
+    transition: all .15s;
 }
 
-.dark .rank-table tbody tr:hover {
-    background: #283548;
+.info-history .history-item:hover {
+    background: #c8ccd0;
 }
 
-.dark .col-idx {
-    color: #5a5d73;
+.info-history .history-input {
+    color: #4a5054;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
 }
 
-.dark .col-rank {
-    color: #818cf8;
+.info-history .history-result {
+    color: #4a5a8a;
+    font-weight: 600;
+    white-space: nowrap;
+    margin-left: 8px;
 }
 
-.dark .col-pct {
-    color: #86efac;
-}
+/* ====== 响应式：移动端单屏滑动 ====== */
+@media (max-width: 780px) {
+    .calc-dual {
+        flex-direction: row;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        gap: 0;
+        height: calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    }
 
-.dark .action-btn.small {
-    background: #1e293b;
-    color: #7c7f93;
-}
+    .calc-body,
+    .calc-info {
+        flex: 0 0 100%;
+        max-width: none;
+        scroll-snap-align: start;
+        height: 100%;
+        border-radius: 18px;
+    }
 
-.dark .action-btn.small:hover {
-    background: #283548;
-    color: #94a3b8;
+    .panel-hidden {
+        display: none;
+    }
+
+    /* 滑动提示 */
+    .swipe-hint {
+        display: flex;
+        justify-content: center;
+        gap: 8px;
+        padding: 8px 0 0;
+    }
+
+    .swipe-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #c0c4c8;
+    }
+
+    .swipe-dot.active {
+        background: #4a5054;
+        width: 18px;
+        border-radius: 3px;
+    }
 }
 
 @keyframes fadeIn {
@@ -1806,248 +2045,135 @@ tr.grade-D .col-grade {
     }
 }
 
-/* ==================== 计算器触屏按键面板 ==================== */
-.calc-pad-toggle {
-    text-align: center;
-    margin-top: 12px;
+/* ====== 主键盘 Casio 按键 ====== */
+.calc-keypad {
+    margin-top: 4px;
 }
 
-.toggle-pad-btn {
-    background: none;
-    border: 1px solid #e8e5ff;
-    color: #6366f1;
-    padding: 6px 16px;
-    border-radius: 6px;
-    font-size: 12px;
-    cursor: pointer;
-    transition: all .15s;
-}
-
-.toggle-pad-btn:hover {
-    background: #f5f3ff;
-    border-color: #6366f1;
-}
-
-.calc-pad {
-    margin-top: 12px;
-    padding: 14px;
-    background: #fafafa;
-    border: 1px solid #f0f0f0;
-    border-radius: 12px;
-    animation: fadeIn .2s ease;
-    user-select: none;
-    -webkit-user-select: none;
-}
-
-/* 函数快捷键行 */
-.calc-func-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 10px;
-}
-
-/* 数字/运算符网格 */
 .calc-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
-    margin-bottom: 8px;
+    gap: 6px;
+    margin-bottom: 6px;
 }
 
-/* 底栏 */
 .calc-bottom-row {
     display: grid;
     grid-template-columns: 1fr 2fr;
-    gap: 8px;
+    gap: 6px;
 }
 
-/* 通用按键 */
+.calc-bottom-row.has-detail {
+    grid-template-columns: 1fr 1fr 1fr;
+}
+
+/* ===== 通用按键 ===== */
 .calc-btn {
-    padding: 14px 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
     border: none;
-    border-radius: 10px;
-    font-size: 18px;
+    border-radius: 5px;
+    font-size: 1rem;
     font-weight: 600;
-    font-family: "SF Mono", "Fira Code", "PingFang SC", monospace;
+    font-family: "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
     cursor: pointer;
-    transition: all .12s;
-    text-align: center;
     outline: none;
+    transition: filter .1s, transform .1s;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
+    user-select: none;
+    padding: 12px 4px;
+    line-height: 1;
+    box-shadow: 0 2px 0 rgba(0, 0, 0, .2), 0 1px 2px rgba(0, 0, 0, .1);
+}
+
+.calc-btn:hover {
+    filter: brightness(1.08);
 }
 
 .calc-btn:active {
-    transform: scale(0.94);
+    filter: brightness(.82);
+    transform: translateY(1px);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, .15);
 }
 
-/* 数字键 */
 .calc-btn.calc-num {
-    background: #fff;
-    color: #1a1a2e;
-    border: 1.5px solid #e5e7eb;
-    font-size: 20px;
+    background-color: #f0f0ea;
+    color: #1a1a1a;
+    font-size: 1.1rem;
+    font-weight: 700;
 }
 
-.calc-btn.calc-num:active {
-    background: #eef2ff;
-    border-color: #6366f1;
-}
-
-/* 运算符键 */
 .calc-btn.calc-op {
-    background: #f5f3ff;
-    color: #6366f1;
-    font-size: 20px;
+    background-color: #4a5054;
+    color: #fff;
+    font-size: 1.05rem;
+    font-weight: 700;
 }
 
-.calc-btn.calc-op:active {
-    background: #ddd6fe;
-}
-
-/* 括号键 */
 .calc-btn.calc-paren {
-    background: #f0f9ff;
-    color: #0284c7;
-    font-size: 18px;
+    background-color: #d5d5cf;
+    color: #1a1a1a;
+    font-size: 1rem;
+    font-weight: 700;
 }
 
-.calc-btn.calc-paren:active {
-    background: #e0f2fe;
-}
-
-/* 删除键 */
 .calc-btn.calc-del {
-    background: #fef2f2;
-    color: #dc2626;
-    font-size: 18px;
+    background-color: #d5d5cf;
+    color: #444;
+    font-size: .95rem;
+    font-weight: 600;
 }
 
-.calc-btn.calc-del:active {
-    background: #fee2e2;
+.calc-space-row {
+    margin-bottom: 6px;
 }
 
-/* 函数快捷键 */
-.calc-func-row .calc-btn.func {
-    flex: 1;
-    min-width: 52px;
-    padding: 8px 4px;
-    font-size: 13px;
-    font-weight: 500;
-    background: #f0fdf4;
-    color: #16a34a;
-    border: 1px solid #dcfce7;
-    border-radius: 8px;
+.calc-btn.calc-space {
+    width: 100%;
+    border-radius: 5px;
+    background-color: #3d4347;
+    color: #8b9094;
+    font-size: .75rem;
+    font-weight: 600;
+    padding: 11px 4px;
+    letter-spacing: 2px;
 }
 
-.calc-func-row .calc-btn.func:active {
-    background: #dcfce7;
-}
-
-/* 清除键 */
 .calc-btn.calc-clear {
-    background: #fef2f2;
-    color: #dc2626;
-    font-size: 18px;
+    background-color: #4a5054;
+    color: #fff;
+    font-size: 1rem;
     font-weight: 700;
+    border-radius: 5px;
+    padding: 13px 4px;
 }
 
-.calc-btn.calc-clear:active {
-    background: #fee2e2;
-}
-
-/* 等号键 */
 .calc-btn.calc-equals {
-    background: #6366f1;
+    background-color: #f6851b;
     color: #fff;
-    font-size: 22px;
+    font-size: 1.2rem;
     font-weight: 700;
+    border-radius: 5px;
+    padding: 13px 4px;
+    box-shadow: 0 2px 0 #c26910, 0 1px 3px rgba(0, 0, 0, .15);
 }
 
-.calc-btn.calc-equals:active {
-    background: #4f46e5;
-}
-
-/* ==================== 深色模式下的计算器面板 ==================== */
-.dark .calc-pad-toggle .toggle-pad-btn {
-    border-color: #334155;
-    color: #818cf8;
-}
-
-.dark .toggle-pad-btn:hover {
-    background: #1e293b;
-    border-color: #6366f1;
-}
-
-.dark .calc-pad {
-    background: #1e293b;
-    border-color: #2d3748;
-}
-
-.dark .calc-btn.calc-num {
-    background: #0f172a;
-    border-color: #334155;
-    color: #e2e8f0;
-}
-
-.dark .calc-btn.calc-num:active {
-    background: #312e81;
-    border-color: #6366f1;
-}
-
-.dark .calc-btn.calc-op {
-    background: #312e81;
-    color: #a5b4fc;
-}
-
-.dark .calc-btn.calc-op:active {
-    background: #3730a3;
-}
-
-.dark .calc-btn.calc-paren {
-    background: #1e3a5f;
-    color: #7dd3fc;
-}
-
-.dark .calc-btn.calc-paren:active {
-    background: #1e40af;
-}
-
-.dark .calc-btn.calc-del {
-    background: #3b1016;
-    color: #fca5a5;
-}
-
-.dark .calc-btn.calc-del:active {
-    background: #581c1c;
-}
-
-.dark .calc-func-row .calc-btn.func {
-    background: #14532d;
-    color: #86efac;
-    border-color: #166534;
-}
-
-.dark .calc-func-row .calc-btn.func:active {
-    background: #166534;
-}
-
-.dark .calc-btn.calc-clear {
-    background: #3b1016;
-    color: #fca5a5;
-}
-
-.dark .calc-btn.calc-clear:active {
-    background: #581c1c;
-}
-
-.dark .calc-btn.calc-equals {
-    background: #6366f1;
+.calc-btn.calc-detail {
+    background-color: #5a6570;
     color: #fff;
+    font-size: .8rem;
+    font-weight: 700;
+    border-radius: 5px;
+    padding: 13px 4px;
+    box-shadow: 0 2px 0 rgba(0, 0, 0, .2);
 }
 
-.dark .calc-btn.calc-equals:active {
-    background: #4f46e5;
+.calc-btn.calc-detail:active {
+    filter: brightness(.82);
+    transform: translateY(1px);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, .15);
 }
 </style>

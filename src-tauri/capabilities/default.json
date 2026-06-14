@@ -2,5 +2,5 @@
   "identifier": "capabilities/default.json",
   "description": "默认权限配置",
   "windows": ["*"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "core:window:allow-close"]
 }
