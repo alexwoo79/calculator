@@ -134,6 +134,7 @@ const calcKeys = [
 const calcFuncKeys = [];
 
 function calcKeyTap(key) {
+    playClick();
     if (key === '⌫') {
         inputText.value = inputText.value.slice(0, -1);
     } else if (key === 'Space') {
@@ -152,6 +153,7 @@ function calcKeyTap(key) {
 function calcFuncTap(fn) { }
 
 function calcClear() {
+    playClick();
     inputText.value = '';
     errorMsg.value = '';
     displayResult.value = null;
@@ -472,6 +474,7 @@ function evaluateSingle(expr) {
 
 // 点击预设函数按钮：如输入栏有有效数字，则将其作为参数嵌入表达式
 function insertHint(hint) {
+    playClick();
     const trimmed = inputText.value.trim();
     // 检查输入栏是否为一个有效数字（支持整数、小数、负数、科学计数法）
     const isNumber = trimmed !== "" && !isNaN(Number(trimmed)) && isFinite(Number(trimmed));
@@ -653,7 +656,7 @@ function formatNum(n) {
                         <button class="calc-btn calc-clear" :class="{ 'calc-pressed': activeKey === 'AC' }"
                             @click="calcClear">AC</button>
                         <button class="calc-btn calc-equals" :class="{ 'calc-pressed': activeKey === '=' }"
-                            @click="handleKeyboardSubmit">=</button>
+                            @click="playClick(); handleKeyboardSubmit()">=</button>
                         <button v-if="stats" class="calc-btn calc-detail" @click="showStats = true">DETAIL</button>
                     </div>
                 </div>
@@ -762,6 +765,9 @@ function formatNum(n) {
                             </div>
                         </div>
                     </div>
+                    <div class="info-back-bottom">
+                        <button class="info-back-btn-bottom" @click="showStats = false">← 返回</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -772,12 +778,12 @@ function formatNum(n) {
 /* 窗口拖拽手柄 */
 .calc-dual {
     display: flex;
-    gap: 14px;
+    gap: 10px;
     align-items: stretch;
-    max-width: 760px;
+    max-width: 860px;
     width: 100%;
     height: calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
-    max-height: 820px;
+    max-height: 900px;
     padding-top: 20px;
     position: relative;
 }
@@ -788,7 +794,7 @@ function formatNum(n) {
     top: 0;
     left: 0;
     right: 0;
-    height: 32px;
+    height: 0px;
     -webkit-app-region: drag;
     z-index: 100;
 }
@@ -814,10 +820,10 @@ function formatNum(n) {
 
 .calc-body {
     flex: 1;
-    max-width: 350px;
+    max-width: 420px;
     background: #2d3436;
     border-radius: 18px;
-    padding: 10px 14px 6px;
+    padding: 10px 10px 14px;
     box-shadow:
         0 8px 32px rgba(0, 0, 0, .35),
         0 2px 8px rgba(0, 0, 0, .2),
@@ -1019,37 +1025,66 @@ function formatNum(n) {
     align-items: center;
     justify-content: center;
     padding: 9px 2px;
-    font-size: 10px;
+    font-size: 11px;
     overflow: visible;
     text-overflow: ellipsis;
-    background: #3d4347;
-    border: 1px solid #4a5054;
-    border-radius: 3px;
+    background: linear-gradient(180deg, #4a5054 0%, #3d4347 40%, #303538 100%);
+    border: 1px solid #353a3e;
+    border-radius: 4px;
     color: #c8cdd0;
     cursor: pointer;
-    transition: all .15s;
-    font-family: "SF Mono", "Fira Code", monospace;
+    transition: all .1s;
+    font-family: "Courier New", "SF Mono", "Fira Code", monospace;
+    font-weight: 600;
+    letter-spacing: 0.3px;
     text-align: center;
     white-space: nowrap;
+    box-shadow:
+        0 3px 0 #5a6068,
+        0 4px 8px rgba(0, 0, 0, .2),
+        inset 0 1px 1px rgba(255, 255, 255, .1),
+        inset 0 -1px 2px rgba(0, 0, 0, .15);
 }
 
 .hint-tag:hover {
-    background: #4a5054;
-    border-color: #6c757d;
+    filter: brightness(1.15);
+    border-color: #5a6068;
     z-index: 20;
+}
+
+.hint-tag:active {
+    filter: brightness(.9);
+    transform: translateY(2px);
+    box-shadow:
+        0 1px 0 #5a6068,
+        0 2px 4px rgba(0, 0, 0, .15),
+        inset 0 1px 1px rgba(255, 255, 255, .08);
 }
 
 /* 配速按钮：橙色高亮 */
 .hint-pace {
-    background: #3d3028;
+    background: linear-gradient(180deg, #5a4530 0%, #4a3825 40%, #3d3028 100%);
     border-color: #8b6914;
     color: #f5c842;
+    box-shadow:
+        0 3px 0 #7a6040,
+        0 4px 8px rgba(0, 0, 0, .2),
+        inset 0 1px 1px rgba(255, 200, 60, .15),
+        inset 0 -1px 2px rgba(0, 0, 0, .15);
 }
 
 .hint-pace:hover {
-    background: #5a4530;
+    filter: brightness(1.2);
     border-color: #c5951a;
     color: #fad84a;
+}
+
+.hint-pace:active {
+    filter: brightness(.9);
+    transform: translateY(2px);
+    box-shadow:
+        0 1px 0 #7a6040,
+        0 2px 4px rgba(0, 0, 0, .15);
 }
 
 /* 自定义 tooltip */
@@ -1783,10 +1818,10 @@ tr.grade-D .col-grade {
 /* ====== 右侧：彩色 LCD 统计面板 ====== */
 .calc-info {
     flex: 1;
-    max-width: 350px;
+    max-width: 420px;
     background: #2d3436;
     border-radius: 18px;
-    padding: 10px 14px 14px;
+    padding: 10px 10px 14px;
     box-shadow:
         0 8px 32px rgba(0, 0, 0, .35),
         0 2px 8px rgba(0, 0, 0, .2),
@@ -1825,6 +1860,35 @@ tr.grade-D .col-grade {
 .info-back-btn:hover {
     background: #3d4347;
     color: #c0c4c8;
+}
+
+.info-back-bottom {
+    display: flex;
+    justify-content: flex-end;
+    padding: 10px 0 4px;
+    border-top: 1px solid #c0c4c8;
+    margin-top: 10px;
+}
+
+.info-back-btn-bottom {
+    background: #4a5054;
+    border: none;
+    border-radius: 5px;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 22px;
+    cursor: pointer;
+    transition: all .15s;
+}
+
+.info-back-btn-bottom:hover {
+    background: #636b72;
+}
+
+.info-back-btn-bottom:active {
+    background: #353a3e;
+    transform: translateY(1px);
 }
 
 .info-lcd {
@@ -2096,7 +2160,7 @@ tr.grade-D .col-grade {
 }
 
 /* ====== 响应式：移动端单屏滑动 ====== */
-@media (max-width: 780px) {
+@media (max-width: 600px) {
     .calc-dual {
         flex-direction: row;
         overflow-x: auto;
@@ -2156,12 +2220,14 @@ tr.grade-D .col-grade {
 .calc-keypad {
     margin-top: 2px;
     flex-shrink: 0;
+    padding-bottom: 6px;
 }
 
 .calc-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 5px;
+    row-gap: 8px;
+    column-gap: 8px;
     margin-bottom: 5px;
 }
 
@@ -2194,90 +2260,186 @@ tr.grade-D .col-grade {
     user-select: none;
     padding: 10px 4px;
     line-height: 1;
-    box-shadow: 0 2px 0 rgba(0, 0, 0, .2), 0 1px 2px rgba(0, 0, 0, .1);
+    box-shadow:
+        0 4px 0 rgba(0, 0, 0, .18),
+        0 6px 10px rgba(0, 0, 0, .12),
+        inset 0 1px 2px rgba(255, 255, 255, .2),
+        inset 0 -1px 3px rgba(0, 0, 0, .06);
 }
 
 .calc-btn:hover {
-    filter: brightness(1.08);
+    filter: brightness(1.06);
 }
 
 .calc-btn:active {
-    filter: brightness(.82);
-    transform: translateY(1px);
-    box-shadow: 0 1px 0 rgba(0, 0, 0, .15);
+    filter: brightness(.85);
+    transform: translateY(3px);
+    box-shadow:
+        0 1px 0 rgba(0, 0, 0, .15),
+        0 2px 4px rgba(0, 0, 0, .1),
+        inset 0 1px 1px rgba(255, 255, 255, .1);
 }
 
 .calc-btn.calc-num {
-    background-color: #f0f0ea;
+    background: linear-gradient(180deg, #fafaf5 0%, #f0f0ea 40%, #e0e0d8 100%);
     color: #1a1a1a;
     font-size: 1.1rem;
     font-weight: 700;
+    box-shadow:
+        0 4px 0 #c5c5bb,
+        0 6px 10px rgba(0, 0, 0, .1),
+        inset 0 1px 2px rgba(255, 255, 255, .4),
+        inset 0 -1px 3px rgba(0, 0, 0, .05);
+}
+
+.calc-btn.calc-num:active {
+    box-shadow:
+        0 1px 0 #c5c5bb,
+        0 2px 4px rgba(0, 0, 0, .08);
 }
 
 .calc-btn.calc-op {
-    background-color: #4a5054;
+    background: linear-gradient(180deg, #5a6068 0%, #4a5054 40%, #3a3f42 100%);
     color: #fff;
     font-size: 1.05rem;
     font-weight: 700;
+    box-shadow:
+        0 4px 0 #6a7278,
+        0 6px 10px rgba(0, 0, 0, .2),
+        inset 0 1px 2px rgba(255, 255, 255, .12),
+        inset 0 -1px 3px rgba(0, 0, 0, .1);
+}
+
+.calc-btn.calc-op:active {
+    box-shadow:
+        0 1px 0 #6a7278,
+        0 2px 4px rgba(0, 0, 0, .15);
 }
 
 .calc-btn.calc-paren {
-    background-color: #d5d5cf;
+    background: linear-gradient(180deg, #e5e5df 0%, #d5d5cf 40%, #c5c5bd 100%);
     color: #1a1a1a;
     font-size: 1rem;
     font-weight: 700;
+    box-shadow:
+        0 4px 0 #a5a59b,
+        0 6px 10px rgba(0, 0, 0, .1),
+        inset 0 1px 2px rgba(255, 255, 255, .4),
+        inset 0 -1px 3px rgba(0, 0, 0, .05);
+}
+
+.calc-btn.calc-paren:active {
+    box-shadow:
+        0 1px 0 #a5a59b,
+        0 2px 4px rgba(0, 0, 0, .08);
 }
 
 .calc-btn.calc-del {
-    background-color: #d5d5cf;
+    background: linear-gradient(180deg, #e5e5df 0%, #d5d5cf 40%, #c5c5bd 100%);
     color: #444;
     font-size: .95rem;
     font-weight: 600;
+    box-shadow:
+        0 4px 0 #a5a59b,
+        0 6px 10px rgba(0, 0, 0, .1),
+        inset 0 1px 2px rgba(255, 255, 255, .4),
+        inset 0 -1px 3px rgba(0, 0, 0, .05);
+}
+
+.calc-btn.calc-del:active {
+    box-shadow:
+        0 1px 0 #a5a59b,
+        0 2px 4px rgba(0, 0, 0, .08);
 }
 
 .calc-space-row {
-    margin-top: 8px;
-    margin-bottom: 20px;
+    margin-top: 15px;
+    margin-bottom: 10px;
 }
 
 .calc-btn.calc-space {
     width: 100%;
     border-radius: 5px;
-    background-color: #5b8cb8;
+    background: linear-gradient(180deg, #6da0cc 0%, #5b8cb8 40%, #4a78a0 100%);
     color: #e8f0f8;
     font-size: .75rem;
     font-weight: 600;
     padding: 14px 4px;
     letter-spacing: 2px;
+    box-shadow:
+        0 4px 0 #7db0d8,
+        0 6px 10px rgba(0, 0, 0, .15),
+        inset 0 1px 2px rgba(255, 255, 255, .2),
+        inset 0 -1px 3px rgba(0, 0, 0, .08);
+}
+
+.calc-btn.calc-space:active {
+    box-shadow:
+        0 1px 0 #7db0d8,
+        0 2px 4px rgba(0, 0, 0, .1);
 }
 
 .calc-btn.calc-clear {
-    background-color: #4a5054;
+    background: linear-gradient(180deg, #5a6068 0%, #4a5054 40%, #3a3f42 100%);
     color: #fff;
     font-size: 1rem;
     font-weight: 700;
     border-radius: 5px;
     padding: 11px 4px;
+    box-shadow:
+        0 4px 0 #6a7278,
+        0 6px 10px rgba(0, 0, 0, .2),
+        inset 0 1px 2px rgba(255, 255, 255, .12),
+        inset 0 -1px 3px rgba(0, 0, 0, .1);
+}
+
+.calc-btn.calc-clear:active {
+    box-shadow:
+        0 1px 0 #6a7278,
+        0 2px 4px rgba(0, 0, 0, .15);
 }
 
 .calc-btn.calc-equals {
-    background-color: #f6851b;
+    background: linear-gradient(180deg, #ffb84d 0%, #ff9a2e 25%, #f6851b 50%, #e07510 100%);
     color: #fff;
     font-size: 1.2rem;
     font-weight: 700;
-    border-radius: 5px;
+    border-radius: 6px;
     padding: 11px 4px;
-    box-shadow: 0 2px 0 #c26910, 0 1px 3px rgba(0, 0, 0, .15);
+    box-shadow:
+        0 4px 0 #ffcc66,
+        0 8px 16px rgba(0, 0, 0, .3),
+        inset 0 2px 3px rgba(255, 255, 255, .35),
+        inset 0 -2px 4px rgba(0, 0, 0, .1);
+}
+
+.calc-btn.calc-equals:active {
+    box-shadow:
+        0 1px 0 #ffcc66,
+        0 3px 6px rgba(0, 0, 0, .25),
+        inset 0 1px 2px rgba(255, 255, 255, .2),
+        inset 0 -1px 2px rgba(0, 0, 0, .05);
+    transform: translateY(3px);
 }
 
 .calc-btn.calc-detail {
-    background-color: #5a6570;
+    background: linear-gradient(180deg, #6a7582 0%, #5a6570 40%, #4a5560 100%);
     color: #fff;
     font-size: .8rem;
     font-weight: 700;
     border-radius: 5px;
     padding: 11px 4px;
-    box-shadow: 0 2px 0 rgba(0, 0, 0, .2);
+    box-shadow:
+        0 4px 0 #7a8592,
+        0 6px 10px rgba(0, 0, 0, .2),
+        inset 0 1px 2px rgba(255, 255, 255, .12),
+        inset 0 -1px 3px rgba(0, 0, 0, .1);
+}
+
+.calc-btn.calc-detail:active {
+    box-shadow:
+        0 1px 0 #7a8592,
+        0 2px 4px rgba(0, 0, 0, .15);
 }
 
 /* 键盘/触控按下反馈 */
