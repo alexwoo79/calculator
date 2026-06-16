@@ -48,6 +48,26 @@ src-tauri/gen/android/app/src/main/jniLibs/
 *~
 
 # ====================
+# iOS (Tauri)
+# ====================
+# Xcode 构建 & 归档
+src-tauri/gen/apple/build/
+*.xcarchive
+*.ipa
+*.dSYM.zip
+# Xcode 用户/工作区数据
+src-tauri/gen/apple/**/xcuserdata/
+src-tauri/gen/apple/**/*.xcworkspace/xcuserdata/
+# CocoaPods
+src-tauri/gen/apple/Pods/
+# 证书 & 配置文件（勿提交签名凭据）
+*.mobileprovision
+*.p12
+*.cer
+# Xcode 派生数据
+DerivedData/
+
+# ====================
 # macOS
 # ====================
 .DS_Store

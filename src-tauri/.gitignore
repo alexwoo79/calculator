@@ -1,0 +1,2 @@
+# Allow cargo to properly detect changes
+# (empty file — overrides root .gitignore for fingerprint detection)

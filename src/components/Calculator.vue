@@ -834,7 +834,7 @@ function formatNum(n) {
     min-height: 100vh;
     min-height: 100dvh;
     background: transparent;
-    /* padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); */
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) 0;
     display: flex;
     justify-content: center;
     align-items: flex-start;
