@@ -23,6 +23,16 @@ const showStats = ref(false);  // 是否展示统计面板
 const showPace = ref(true);    // 是否显示配速转换
 const paceHints = new Set(['km', 'Hour', 'Min', 'Second']);
 
+// ===== 全局 tooltip（绕过 overflow:hidden 裁剪）=====
+const tooltip = ref({ show: false, text: '', x: 0, y: 0 });
+function showTooltip(e, text) {
+    const rect = e.target.getBoundingClientRect();
+    tooltip.value = { show: true, text, x: rect.left + rect.width / 2, y: rect.bottom + 8 };
+}
+function hideTooltip() {
+    tooltip.value.show = false;
+}
+
 // 表达式是否包含配速相关单位
 const paceContext = computed(() => {
     const expr = lastInput.value.toLowerCase();
@@ -89,6 +99,17 @@ function playClick() {
 }
 
 function onKeyDown(e) {
+    // 左右方向键切换面板（输入框聚焦时不拦截）
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        const isInputFocused = document.activeElement?.tagName === 'INPUT';
+        if (!isInputFocused) {
+            e.preventDefault();
+            showStats.value = e.key === 'ArrowRight';
+            return;
+        }
+        return; // 输入框内正常移动光标
+    }
+
     const mapped = keyMap[e.key];
     if (!mapped) return;
     e.preventDefault();
@@ -463,11 +484,16 @@ function prepareExpression(expr) {
 // 计算单个表达式
 function evaluateSingle(expr) {
     const prepared = prepareExpression(expr);
-    // 使用 Function 构造器进行求值
-    const result = new Function("Math", "factorial", "ncr", "npr", "km", "Hour", "Min", "Second", "hour", "min", "second", "sec", `"use strict"; return (${prepared});`)(Math, factorial, ncr, npr, 1, 1, 1 / 60, 1 / 3600, 1, 1 / 60, 1 / 3600, 1 / 3600);
+    let result;
+    try {
+        // 使用 Function 构造器进行求值
+        result = new Function("Math", "factorial", "ncr", "npr", "km", "Hour", "Min", "Second", "hour", "min", "second", "sec", `"use strict"; return (${prepared});`)(Math, factorial, ncr, npr, 1, 1, 1 / 60, 1 / 3600, 1, 1 / 60, 1 / 3600, 1 / 3600);
+    } catch {
+        throw new Error("请输入正确的表达式");
+    }
     const num = Number(result);
     if (isNaN(num) || !isFinite(num)) {
-        throw new Error(`表达式 "${expr}" 结果不是有效数字`);
+        throw new Error("请输入正确的表达式");
     }
     return num;
 }
@@ -590,7 +616,7 @@ function formatNum(n) {
             <!-- ====== 左侧：计算器 ====== -->
             <div class="calc-body" :class="{ 'panel-hidden': showStats }">
                 <div class="calc-top-bar">
-                    <span class="calc-brand">Alex Calculator</span>
+                    <span class="calc-brand">AnyCalculator</span>
                     <span class="calc-model">SC-100</span>
                 </div>
 
@@ -632,8 +658,8 @@ function formatNum(n) {
 
                 <div class="calc-hints-area">
                     <span v-for="h in functionHints" :key="h" class="hint-tag"
-                        :class="{ 'hint-pace': paceHints.has(h) }" :data-tooltip="hintTooltips[h] || h"
-                        @click="insertHint(h)">{{ h }}</span>
+                        :class="{ 'hint-pace': paceHints.has(h) }" @click="insertHint(h)"
+                        @mouseenter="showTooltip($event, hintTooltips[h] || h)" @mouseleave="hideTooltip">{{ h }}</span>
                 </div>
 
                 <div class="calc-keypad">
@@ -771,6 +797,10 @@ function formatNum(n) {
                 </div>
             </div>
         </div>
+        <!-- 全局 tooltip，绕过 overflow:hidden -->
+        <div v-if="tooltip.show" class="global-tooltip" :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px' }">
+            {{ tooltip.text }}
+        </div>
     </div>
 </template>
 
@@ -782,9 +812,9 @@ function formatNum(n) {
     align-items: stretch;
     max-width: 860px;
     width: 100%;
-    height: calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
-    max-height: 900px;
-    padding-top: 20px;
+    height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    max-height: 880px;
+    padding-top: 0px;
     position: relative;
 }
 
@@ -804,7 +834,7 @@ function formatNum(n) {
     min-height: 100vh;
     min-height: 100dvh;
     background: transparent;
-    padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    /* padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); */
     display: flex;
     justify-content: center;
     align-items: flex-start;
@@ -990,8 +1020,9 @@ function formatNum(n) {
 }
 
 .output-error {
-    font-size: 13px;
-    color: #8b2020;
+    font-size: 12px;
+    color: #4a5054;
+    font-family: "Courier New", "SF Mono", "Fira Code", monospace;
 }
 
 .screen-stats {
@@ -1088,13 +1119,16 @@ function formatNum(n) {
 }
 
 /* 自定义 tooltip */
-.hint-tag::after {
-    content: attr(data-tooltip);
-    position: absolute;
-    bottom: calc(100% + 6px);
-    left: 50%;
+.hint-tag::after,
+.hint-tag::before {
+    display: none;
+}
+
+/* 全局 tooltip（固定定位，不受 overflow 影响）*/
+.global-tooltip {
+    position: fixed;
     transform: translateX(-50%);
-    padding: 3px 8px;
+    padding: 4px 10px;
     background: #1a1a2e;
     color: #fff;
     font-size: 11px;
@@ -1102,26 +1136,7 @@ function formatNum(n) {
     white-space: nowrap;
     border-radius: 4px;
     pointer-events: none;
-    opacity: 0;
-    transition: opacity .15s;
-}
-
-.hint-tag::before {
-    content: "";
-    position: absolute;
-    bottom: calc(100% + 1px);
-    left: 50%;
-    transform: translateX(-50%);
-    border: 5px solid transparent;
-    border-top-color: #1a1a2e;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity .15s;
-}
-
-.hint-tag:hover::after,
-.hint-tag:hover::before {
-    opacity: 1;
+    z-index: 9999;
 }
 
 .hint-text {
@@ -1863,11 +1878,10 @@ tr.grade-D .col-grade {
 }
 
 .info-back-bottom {
+    position: absolute;
+    bottom: 8px;
+    right: 12px;
     display: flex;
-    justify-content: flex-end;
-    padding: 10px 0 4px;
-    border-top: 1px solid #c0c4c8;
-    margin-top: 10px;
 }
 
 .info-back-btn-bottom {
@@ -1901,6 +1915,7 @@ tr.grade-D .col-grade {
     font-size: 12px;
     color: #333;
     min-height: 0;
+    position: relative;
 }
 
 .info-empty {
@@ -1960,9 +1975,9 @@ tr.grade-D .col-grade {
 
 .info-label {
     display: block;
-    font-size: 7px;
+    font-size: 10px;
     color: #8a9094;
-    margin-bottom: 1px;
+    margin-bottom: 2px;
     letter-spacing: .5px;
 }
 
@@ -2166,7 +2181,7 @@ tr.grade-D .col-grade {
         overflow-x: auto;
         scroll-snap-type: x mandatory;
         gap: 0;
-        height: calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+        height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
     }
 
     .calc-body,
@@ -2353,7 +2368,7 @@ tr.grade-D .col-grade {
 }
 
 .calc-space-row {
-    margin-top: 15px;
+    margin-top: 10px;
     margin-bottom: 10px;
 }
 
