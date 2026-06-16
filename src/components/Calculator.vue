@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 
 const inputText = ref("");
 const numbers = ref([]);
@@ -9,6 +9,7 @@ const copiedIdx = ref(-1);
 const quickPasteText = ref("");
 const displayResult = ref(null);
 const lastInput = ref("");       // 上一次计算的输入
+const lastResultValue = ref(null); // 上一次计算结果（数值，用于连算）
 const aBound = ref(75);
 const bBound = ref(50);
 const cBound = ref(25);
@@ -53,6 +54,74 @@ const resultUnit = computed(() => {
     return '';
 });
 
+// ===== 键盘按键反馈 =====
+const activeKey = ref(null); // 当前高亮的按键标识
+let audioCtx = null;
+
+// 物理键盘 → 计算器按键映射
+const keyMap = {
+    '0': '0', '1': '1', '2': '2', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7', '8': '8', '9': '9',
+    '.': '.', ',': '.',
+    '/': '÷', '*': '×', '-': '−', '+': '+',
+    'Backspace': '⌫', 'Delete': '⌫',
+    ' ': 'Space', 'Spacebar': 'Space',
+    'Enter': '=', '=': '=',
+    'Escape': 'AC',
+    '(': '(', ')': ')',
+    '^': '^', '%': '%',
+};
+
+function playClick() {
+    if (!audioCtx) {
+        try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch { return; }
+    }
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1200, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.06);
+    gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
+    osc.start(audioCtx.currentTime);
+    osc.stop(audioCtx.currentTime + 0.08);
+}
+
+function onKeyDown(e) {
+    const mapped = keyMap[e.key];
+    if (!mapped) return;
+    e.preventDefault();
+    activeKey.value = mapped;
+    playClick();
+    // 映射到计算器操作
+    if (mapped === '=' || mapped === 'AC' || mapped === '⌫' || mapped === 'Space') {
+        if (mapped === '=') handleKeyboardSubmit();
+        else if (mapped === 'AC') calcClear();
+        else if (mapped === '⌫') inputText.value = inputText.value.slice(0, -1);
+        else if (mapped === 'Space') inputText.value += ' ';
+    } else {
+        inputText.value += mapped === '÷' ? '/' : mapped === '×' ? '*' : mapped === '−' ? '-' : mapped;
+    }
+}
+
+function onKeyUp(e) {
+    const mapped = keyMap[e.key];
+    if (mapped && activeKey.value === mapped) {
+        activeKey.value = null;
+    }
+}
+
+onMounted(() => {
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+});
+
+onUnmounted(() => {
+    window.removeEventListener('keydown', onKeyDown);
+    window.removeEventListener('keyup', onKeyUp);
+});
+
 // 计算器按键处理
 const calcKeys = [
     // 数字行
@@ -87,6 +156,7 @@ function calcClear() {
     errorMsg.value = '';
     displayResult.value = null;
     lastInput.value = '';
+    lastResultValue.value = null;
     numbers.value = [];
 }
 
@@ -255,6 +325,7 @@ function clearResults() {
     numbers.value = [];
     errorMsg.value = "";
     displayResult.value = null;
+    lastResultValue.value = null;
 }
 
 // 历史记录点击复用
@@ -428,15 +499,27 @@ function insertHint(hint) {
 // 键盘输入处理
 function handleKeyboardSubmit() {
     errorMsg.value = "";
-    displayResult.value = null;
     const input = inputText.value.trim();
+
+    // 无输入但有上次结果 → 直接复用结果
+    if (!input && lastResultValue.value !== null) {
+        return;
+    }
     if (!input) return;
+
+    // 有上次结果且输入以运算符开头 → 连算
+    let expr = input;
+    if (lastResultValue.value !== null && /^[+\-*/^%]/.test(input)) {
+        expr = String(lastResultValue.value) + ' ' + input;
+    }
+
+    displayResult.value = null;
 
     try {
         const nums = [];
         // 包含逗号或换行 → 直接按分隔符处理
-        if (/[,\n]/.test(input)) {
-            const tokens = input.split(/[,\s\n]+/);
+        if (/[,\n]/.test(expr)) {
+            const tokens = expr.split(/[,\s\n]+/);
             for (const token of tokens) {
                 if (!token) continue;
                 nums.push(evaluateSingle(token));
@@ -444,10 +527,10 @@ function handleKeyboardSubmit() {
         } else {
             // 先尝试将整行作为一个表达式求值（如 "1 + 3"）
             try {
-                nums.push(evaluateSingle(input));
+                nums.push(evaluateSingle(expr));
             } catch {
                 // 整行求值失败，按空格分割逐个求值（如 "1 2 3"）
-                const tokens = input.split(/\s+/);
+                const tokens = expr.split(/\s+/);
                 for (const token of tokens) {
                     if (!token) continue;
                     nums.push(evaluateSingle(token));
@@ -458,11 +541,19 @@ function handleKeyboardSubmit() {
             errorMsg.value = "未解析到有效的数字";
             return;
         }
+        // 有上次结果且非运算符开头 → 多值输入将结果纳入数组首位
+        if (lastResultValue.value !== null && !/^[+\-*/^%]/.test(input)) {
+            if (/[,\n]/.test(input) || nums.length > 1) {
+                nums.unshift(lastResultValue.value);
+                expr = String(lastResultValue.value) + ', ' + input;
+            }
+        }
         numbers.value = nums;
-        addHistory("键盘", inputText.value, nums);
-        lastInput.value = inputText.value;
+        addHistory("键盘", expr, nums);
+        lastInput.value = expr;
         // 屏幕显示总和
         const sum = nums.reduce((a, b) => a + b, 0);
+        lastResultValue.value = nums.length > 1 ? sum : nums[0];
         displayResult.value = nums.length > 1 ? formatNum(sum) : formatNum(nums[0]);
         inputText.value = "";
     } catch (err) {
@@ -507,30 +598,32 @@ function formatNum(n) {
                         <span class="status-mem" v-if="history.length">M</span>
                         <span class="status-bat">▮▮▮</span>
                     </div>
-                    <div class="screen-expr" v-if="displayResult && lastInput">
-                        {{ lastInput }}
+                    <div class="screen-expr" :class="{ 'screen-hidden': !(displayResult && lastInput) }">
+                        {{ lastInput || '\u00A0' }}
                     </div>
                     <div class="screen-input">
-                        <input v-model="inputText" class="screen-input-field" placeholder="输入表达式，逗号/空格分隔多值..."
-                            @keyup.enter="handleKeyboardSubmit" />
+                        <input v-model="inputText" class="screen-input-field"
+                            :placeholder="displayResult ? '' : '输入表达式，逗号/空格分隔多值...'"
+                            @keydown.space.prevent="inputText += ' '" @keyup.enter="handleKeyboardSubmit" />
                     </div>
                     <div class="screen-output">
                         <div class="output-row">
-                            <span v-if="displayResult" class="output-value">{{ displayResult }}<span v-if="resultUnit"
+                            <span v-show="displayResult" class="output-value">{{ displayResult }}<span v-if="resultUnit"
                                     class="output-unit"> {{ resultUnit }}</span></span>
-                            <span v-else-if="previewResult" class="output-value dim">{{ previewResult.value }}</span>
-                            <span v-if="displayResult && paceText" class="output-pace" @click="showPace = !showPace"
+                            <span v-show="!displayResult && previewResult" class="output-value dim">{{
+                                previewResult?.value || '\u00A0' }}</span>
+                            <span v-show="displayResult && paceText" class="output-pace" @click="showPace = !showPace"
                                 title="点击切换配速显示">{{ paceText }}</span>
                         </div>
-                        <span v-if="errorMsg" class="output-error">{{ errorMsg }}</span>
+                        <span v-show="errorMsg" class="output-error">{{ errorMsg }}</span>
                     </div>
-                    <div class="screen-stats" v-if="stats">
-                        <span>n={{ stats.count }}</span>
-                        <span>Σ={{ formatNum(stats.sum) }}</span>
-                        <span>x̄={{ formatNum(stats.avg) }}</span>
-                        <span>σ={{ formatNum(stats.stddev) }}</span>
-                        <span>min={{ formatNum(stats.min) }}</span>
-                        <span>max={{ formatNum(stats.max) }}</span>
+                    <div class="screen-stats" :class="{ 'screen-hidden': !stats }">
+                        <span>n={{ stats?.count ?? '-' }}</span>
+                        <span>Σ={{ stats ? formatNum(stats.sum) : '-' }}</span>
+                        <span>x̄={{ stats ? formatNum(stats.avg) : '-' }}</span>
+                        <span>σ={{ stats ? formatNum(stats.stddev) : '-' }}</span>
+                        <span>min={{ stats ? formatNum(stats.min) : '-' }}</span>
+                        <span>max={{ stats ? formatNum(stats.max) : '-' }}</span>
                     </div>
                 </div>
 
@@ -548,15 +641,19 @@ function formatNum(n) {
                                 'calc-op': ['÷', '×', '−', '+', '^', '%'].includes(key),
                                 'calc-paren': key === '(' || key === ')',
                                 'calc-del': key === '⌫',
+                                'calc-pressed': activeKey === key,
                             }" @click="calcKeyTap(key)">{{ key }}</button>
                         </template>
                     </div>
                     <div class="calc-space-row">
-                        <button class="calc-btn calc-space" @click="calcKeyTap('Space')">SPACE</button>
+                        <button class="calc-btn calc-space" :class="{ 'calc-pressed': activeKey === 'Space' }"
+                            @click="calcKeyTap('Space')">SPACE</button>
                     </div>
                     <div class="calc-bottom-row" :class="{ 'has-detail': stats }">
-                        <button class="calc-btn calc-clear" @click="calcClear">AC</button>
-                        <button class="calc-btn calc-equals" @click="handleKeyboardSubmit">=</button>
+                        <button class="calc-btn calc-clear" :class="{ 'calc-pressed': activeKey === 'AC' }"
+                            @click="calcClear">AC</button>
+                        <button class="calc-btn calc-equals" :class="{ 'calc-pressed': activeKey === '=' }"
+                            @click="handleKeyboardSubmit">=</button>
                         <button v-if="stats" class="calc-btn calc-detail" @click="showStats = true">DETAIL</button>
                     </div>
                 </div>
@@ -720,15 +817,14 @@ function formatNum(n) {
     max-width: 350px;
     background: #2d3436;
     border-radius: 18px;
-    padding: 14px 14px 18px;
+    padding: 10px 14px 6px;
     box-shadow:
         0 8px 32px rgba(0, 0, 0, .35),
         0 2px 8px rgba(0, 0, 0, .2),
         inset 0 1px 0 rgba(255, 255, 255, .06);
     display: flex;
     flex-direction: column;
-    overflow-y: auto;
-    overflow-x: visible;
+    overflow: hidden;
 }
 
 .calc-brand {
@@ -770,12 +866,14 @@ function formatNum(n) {
     background: #d5d8dc;
     border: 3px solid #1a1c1d;
     border-radius: 6px;
-    padding: 10px 14px 10px;
-    margin-bottom: 10px;
-    flex: 1;
+    padding: 8px 12px 6px;
+    margin-bottom: 6px;
+    flex: 0 0 auto;
     display: flex;
     flex-direction: column;
     font-family: "Courier New", "SF Mono", "Fira Code", monospace;
+    min-height: 0;
+    max-height: 150px;
 }
 
 .screen-status {
@@ -814,6 +912,11 @@ function formatNum(n) {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    min-height: 18px;
+}
+
+.screen-hidden {
+    visibility: hidden;
 }
 
 .screen-input-field {
@@ -834,7 +937,7 @@ function formatNum(n) {
 
 .screen-output {
     text-align: right;
-    min-height: 28px;
+    min-height: 32px;
     margin-top: 4px;
 }
 
@@ -895,6 +998,7 @@ function formatNum(n) {
     letter-spacing: .3px;
     padding-top: 4px;
     border-top: 1px solid #c0c4c8;
+    min-height: 22px;
 }
 
 /* ---- 预设函数矩阵 ---- */
@@ -902,10 +1006,11 @@ function formatNum(n) {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
     gap: 3px;
-    margin-bottom: 10px;
+    margin-bottom: 6px;
     padding: 0 2px;
     overflow: visible;
     z-index: 5;
+    flex-shrink: 0;
 }
 
 .hint-tag {
@@ -913,7 +1018,7 @@ function formatNum(n) {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 8px 2px;
+    padding: 9px 2px;
     font-size: 10px;
     overflow: visible;
     text-overflow: ellipsis;
@@ -1681,13 +1786,14 @@ tr.grade-D .col-grade {
     max-width: 350px;
     background: #2d3436;
     border-radius: 18px;
-    padding: 12px 14px 16px;
+    padding: 10px 14px 14px;
     box-shadow:
         0 8px 32px rgba(0, 0, 0, .35),
         0 2px 8px rgba(0, 0, 0, .2),
         inset 0 1px 0 rgba(255, 255, 255, .06);
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 
 .info-top-bar {
@@ -1727,9 +1833,10 @@ tr.grade-D .col-grade {
     border: 3px solid #1a1c1d;
     border-radius: 6px;
     padding: 10px 12px;
-    overflow-y: auto;
+    overflow: hidden;
     font-size: 12px;
     color: #333;
+    min-height: 0;
 }
 
 .info-empty {
@@ -2047,20 +2154,21 @@ tr.grade-D .col-grade {
 
 /* ====== 主键盘 Casio 按键 ====== */
 .calc-keypad {
-    margin-top: 4px;
+    margin-top: 2px;
+    flex-shrink: 0;
 }
 
 .calc-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
-    margin-bottom: 6px;
+    gap: 5px;
+    margin-bottom: 5px;
 }
 
 .calc-bottom-row {
     display: grid;
-    grid-template-columns: 1fr 2fr;
-    gap: 6px;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
 }
 
 .calc-bottom-row.has-detail {
@@ -2084,7 +2192,7 @@ tr.grade-D .col-grade {
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
     user-select: none;
-    padding: 12px 4px;
+    padding: 10px 4px;
     line-height: 1;
     box-shadow: 0 2px 0 rgba(0, 0, 0, .2), 0 1px 2px rgba(0, 0, 0, .1);
 }
@@ -2128,17 +2236,18 @@ tr.grade-D .col-grade {
 }
 
 .calc-space-row {
-    margin-bottom: 6px;
+    margin-top: 8px;
+    margin-bottom: 20px;
 }
 
 .calc-btn.calc-space {
     width: 100%;
     border-radius: 5px;
-    background-color: #3d4347;
-    color: #8b9094;
+    background-color: #5b8cb8;
+    color: #e8f0f8;
     font-size: .75rem;
     font-weight: 600;
-    padding: 11px 4px;
+    padding: 14px 4px;
     letter-spacing: 2px;
 }
 
@@ -2148,7 +2257,7 @@ tr.grade-D .col-grade {
     font-size: 1rem;
     font-weight: 700;
     border-radius: 5px;
-    padding: 13px 4px;
+    padding: 11px 4px;
 }
 
 .calc-btn.calc-equals {
@@ -2157,7 +2266,7 @@ tr.grade-D .col-grade {
     font-size: 1.2rem;
     font-weight: 700;
     border-radius: 5px;
-    padding: 13px 4px;
+    padding: 11px 4px;
     box-shadow: 0 2px 0 #c26910, 0 1px 3px rgba(0, 0, 0, .15);
 }
 
@@ -2167,8 +2276,15 @@ tr.grade-D .col-grade {
     font-size: .8rem;
     font-weight: 700;
     border-radius: 5px;
-    padding: 13px 4px;
+    padding: 11px 4px;
     box-shadow: 0 2px 0 rgba(0, 0, 0, .2);
+}
+
+/* 键盘/触控按下反馈 */
+.calc-btn.calc-pressed {
+    filter: brightness(.7);
+    transform: translateY(2px);
+    box-shadow: 0 0 0 rgba(0, 0, 0, .1);
 }
 
 .calc-btn.calc-detail:active {
