@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
 
 const inputText = ref("");
 const numbers = ref([]);
@@ -22,6 +22,47 @@ const showHints = ref(false);
 const showStats = ref(false);  // 是否展示统计面板
 const showPace = ref(true);    // 是否显示配速转换
 const paceHints = new Set(['km', 'Hour', 'Min', 'Second']);
+
+// ===== 功能模式 =====
+const calcMode = ref('standard');  // 'standard' | 'solve'
+const useDegrees = ref(false);     // false=弧度, true=角度
+const useInverse = ref(false);     // false=正函数, true=反函数
+
+// ===== LCD 拖拽滚动 =====
+const outputRow = ref(null);
+let dragStartX = 0;
+let dragScrollLeft = 0;
+let isDragging = false;
+
+function startDragScroll(e) {
+    const el = outputRow.value;
+    if (!el || el.scrollWidth <= el.clientWidth) return;
+    isDragging = true;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    dragStartX = clientX;
+    dragScrollLeft = el.scrollLeft;
+    el.style.cursor = 'grabbing';
+    el.style.userSelect = 'none';
+}
+
+function dragScroll(e) {
+    if (!isDragging) return;
+    const el = outputRow.value;
+    if (!el) return;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const dx = clientX - dragStartX;
+    el.scrollLeft = dragScrollLeft - dx;
+}
+
+function stopDragScroll() {
+    if (!isDragging) return;
+    isDragging = false;
+    const el = outputRow.value;
+    if (el) {
+        el.style.cursor = '';
+        el.style.userSelect = '';
+    }
+}
 
 // ===== 全局 tooltip（绕过 overflow:hidden 裁剪）=====
 const tooltip = ref({ show: false, text: '', x: 0, y: 0 });
@@ -99,31 +140,89 @@ function playClick() {
 }
 
 function onKeyDown(e) {
+    const isInputFocused = document.activeElement?.tagName === 'INPUT';
+
     // 左右方向键切换面板（输入框聚焦时不拦截）
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-        const isInputFocused = document.activeElement?.tagName === 'INPUT';
         if (!isInputFocused) {
             e.preventDefault();
             showStats.value = e.key === 'ArrowRight';
-            return;
         }
-        return; // 输入框内正常移动光标
+        return;
     }
 
     const mapped = keyMap[e.key];
     if (!mapped) return;
+
+    const input = document.activeElement;
+    const isOurInput = isInputFocused && input?.closest('.calc-screen');
+
+    // AC 全局处理
+    if (mapped === 'AC') {
+        e.preventDefault();
+        activeKey.value = mapped;
+        playClick();
+        calcClear();
+        return;
+    }
+
+    // 退格：在输入框内用光标位置精确删除
+    if (mapped === '⌫') {
+        e.preventDefault();
+        activeKey.value = mapped;
+        playClick();
+        if (isOurInput && input.selectionStart !== undefined) {
+            const pos = input.selectionStart;
+            if (pos > 0) {
+                const before = inputText.value.slice(0, pos - 1);
+                const after = inputText.value.slice(pos);
+                inputText.value = before + after;
+                // 恢复光标位置
+                nextTick(() => {
+                    input.setSelectionRange(pos - 1, pos - 1);
+                });
+            }
+        } else {
+            inputText.value = inputText.value.slice(0, -1);
+        }
+        return;
+    }
+
+    // SPACE
+    if (mapped === 'Space') {
+        e.preventDefault();
+        activeKey.value = mapped;
+        playClick();
+        inputText.value += ' ';
+        return;
+    }
+
+    // = 键
+    if (mapped === '=') {
+        e.preventDefault();
+        activeKey.value = mapped;
+        playClick();
+        if (calcMode.value === 'solve' && !inputText.value.includes('=')) {
+            inputText.value += '=';
+        } else {
+            handleKeyboardSubmit();
+        }
+        return;
+    }
+
+    // 输入框聚焦时，普通字符由浏览器自然输入（避免双重输入）
+    if (isOurInput) {
+        activeKey.value = mapped;
+        playClick();
+        // 只阻止空格（已在上面处理），其余字符交给浏览器
+        return;
+    }
+
+    // 输入框未聚焦：手动插入（模拟计算器键盘输入）
     e.preventDefault();
     activeKey.value = mapped;
     playClick();
-    // 映射到计算器操作
-    if (mapped === '=' || mapped === 'AC' || mapped === '⌫' || mapped === 'Space') {
-        if (mapped === '=') handleKeyboardSubmit();
-        else if (mapped === 'AC') calcClear();
-        else if (mapped === '⌫') inputText.value = inputText.value.slice(0, -1);
-        else if (mapped === 'Space') inputText.value += ' ';
-    } else {
-        inputText.value += mapped === '÷' ? '/' : mapped === '×' ? '*' : mapped === '−' ? '-' : mapped;
-    }
+    inputText.value += mapped === '÷' ? '/' : mapped === '×' ? '*' : mapped === '−' ? '-' : mapped;
 }
 
 function onKeyUp(e) {
@@ -157,7 +256,16 @@ const calcFuncKeys = [];
 function calcKeyTap(key) {
     playClick();
     if (key === '⌫') {
-        inputText.value = inputText.value.slice(0, -1);
+        const input = document.querySelector('.screen-input-field');
+        if (input && input.selectionStart !== undefined && input.selectionStart > 0) {
+            const pos = input.selectionStart;
+            const before = inputText.value.slice(0, pos - 1);
+            const after = inputText.value.slice(pos);
+            inputText.value = before + after;
+            nextTick(() => input.setSelectionRange(pos - 1, pos - 1));
+        } else {
+            inputText.value = inputText.value.slice(0, -1);
+        }
     } else if (key === 'Space') {
         inputText.value += ' ';
     } else if (key === '÷') {
@@ -200,7 +308,7 @@ const functionHints = [
     "nCr(n,r)", "nPr(n,r)", "x!", "x%",
     "hex2dec(x)", "bin2dec(x)",
     // 常量/字面量
-    "pi", "e", "km", "Hour", "Min", "Second",
+    "pi", "e", "1/x", "x^2", "x^3", "km", "Hour", "Min", "Second",
 ];
 
 // 每个预设的 hover 提示
@@ -217,9 +325,73 @@ const hintTooltips = {
     "nCr(n,r)": "组合数 C(n,r)", "nPr(n,r)": "排列数 P(n,r)", "x!": "阶乘", "x%": "百分比 ÷100",
     "hex2dec(x)": "十六进制→十进制", "bin2dec(x)": "二进制→十进制",
     "pi": "圆周率 π≈3.1416", "e": "自然常数 e≈2.7183",
+    "1/x": "倒数", "x^2": "平方", "x^3": "立方",
     "km": "千米 (=1) · 距离单位", "Hour": "小时 (=1) · 时间单位",
     "Min": "分钟 (=1/60h) · 时间单位", "Second": "秒 (=1/3600h) · 简写 sec",
 };
+
+// ===== 动态预设函数（根据模式切换）=====
+const standardHintsRad = [
+    "sin(x)", "cos(x)", "tan(x)", "sqrt(x)", "cbrt(x)",
+    "ln(x)", "lg(x)", "pow(x,y)", "abs(x)", "sign(x)",
+    "floor(x)", "ceil(x)", "round(x)", "mod(x,y)",
+    "sinh(x)", "cosh(x)", "tanh(x)", "hypot(x,y)",
+    "deg(x)", "rad(x)", "nCr(n,r)", "nPr(n,r)", "x!",
+    "x%", "hex2dec(x)", "bin2dec(x)", "pi", "e",
+    "1/x", "x^2", "x^3", "km", "Hour", "Min", "Second",
+];
+const standardHintsDeg = [
+    "sind(x)", "cosd(x)", "tand(x)", "sqrt(x)", "cbrt(x)",
+    "ln(x)", "lg(x)", "pow(x,y)", "abs(x)", "sign(x)",
+    "floor(x)", "ceil(x)", "round(x)", "mod(x,y)",
+    "sinh(x)", "cosh(x)", "tanh(x)", "hypot(x,y)",
+    "deg(x)", "rad(x)", "nCr(n,r)", "nPr(n,r)", "x!",
+    "x%", "hex2dec(x)", "bin2dec(x)", "pi", "e",
+    "1/x", "x^2", "x^3", "km", "Hour", "Min", "Second",
+];
+const standardHintsRadInv = [
+    "asin(x)", "acos(x)", "atan(x)", "sqrt(x)", "cbrt(x)",
+    "ln(x)", "lg(x)", "pow(x,y)", "abs(x)", "sign(x)",
+    "floor(x)", "ceil(x)", "round(x)", "mod(x,y)",
+    "sinh(x)", "cosh(x)", "tanh(x)", "hypot(x,y)",
+    "deg(x)", "rad(x)", "nCr(n,r)", "nPr(n,r)", "x!",
+    "x%", "hex2dec(x)", "bin2dec(x)", "pi", "e",
+    "1/x", "x^2", "x^3", "km", "Hour", "Min", "Second",
+];
+const standardHintsDegInv = [
+    "asin(x)", "acos(x)", "atan(x)", "sqrt(x)", "cbrt(x)",
+    "ln(x)", "lg(x)", "pow(x,y)", "abs(x)", "sign(x)",
+    "floor(x)", "ceil(x)", "round(x)", "mod(x,y)",
+    "sinh(x)", "cosh(x)", "tanh(x)", "hypot(x,y)",
+    "deg(x)", "rad(x)", "nCr(n,r)", "nPr(n,r)", "x!",
+    "x%", "hex2dec(x)", "bin2dec(x)", "pi", "e",
+    "km", "Hour", "Min", "Second",
+];
+
+const solveHints = [
+    "ax^2+bx+c=0", "ax+b=0", "x^2+px+q=0", "ax^2+bx=0",
+    "ax^3+bx^2+cx+d=0", "a/x+b=c", "sqrt(ax+b)=c",
+    "a^x=b", "ln(x)=a", "abs(x)=a",
+    "sin(x)=a", "cos(x)=a", "tan(x)=a",
+];
+
+const HINT_ROW_COUNT = 6; // 固定行数，保持 UI 高度一致
+
+const displayHints = computed(() => {
+    const cols = calcMode.value === 'solve' ? 4 : 5;
+    const total = HINT_ROW_COUNT * cols;
+    let hints;
+    if (calcMode.value === 'solve') hints = solveHints;
+    else if (useDegrees.value) {
+        hints = useInverse.value ? standardHintsDegInv : standardHintsDeg;
+    } else {
+        hints = useInverse.value ? standardHintsRadInv : standardHintsRad;
+    }
+    // 补齐到固定数量，保持预设功能区高度不变
+    const padded = [...hints];
+    while (padded.length < total) padded.push(null);
+    return padded;
+});
 
 // 计算结果统计
 const stats = computed(() => {
@@ -342,6 +514,532 @@ function ncr(n, r) {
 function npr(n, r) {
     if (r < 0 || r > n) throw new Error("nPr 参数无效");
     return Math.round(factorial(n) / factorial(n - r));
+}
+
+// ===== 方程求解（增强版：支持一次/二次/三次，含解题步骤）=====
+const solveSteps = ref([]);     // 解题步骤数组
+const solveResult = ref(null);  // 详细求解结果
+
+// 解析多项式表达式，提取各项系数 [c0, c1, c2, c3] 对应常数项、x、x²、x³
+function parsePolynomial(expr) {
+    let s = expr.replace(/\s/g, '').toLowerCase();
+    // 统一幂符号
+    s = s.replace(/\^/g, '^');
+    // 处理隐式乘法: 2x → 2*x, x2 → x*2, 3x^2 → 3*x^2, (x+1)(x+2) → (x+1)*(x+2)
+    s = s.replace(/(\d)(x)/g, '$1*x');
+    s = s.replace(/(x)(\d)/g, '$1*$2');
+    s = s.replace(/\)\(/g, ')*(');
+    s = s.replace(/(\d)\(/g, '$1*(');
+    s = s.replace(/\)(\d)/g, ')*$1');
+
+    // 提取系数：用 x^3, x^2, x, 常数项采样
+    const coeffs = [0, 0, 0, 0]; // [c, b, a, a3] for ax^3+bx^2+cx+d
+
+    // 用数值采样法提取各次幂系数（精确解析多项式）
+    function evalAt(val) {
+        const substituted = s.replace(/x/g, `(${val})`).replace(/\^/g, '**');
+        try {
+            return new Function(`"use strict"; return (${substituted});`)();
+        } catch { return NaN; }
+    }
+
+    // 采样 4 个点解出 4 个系数 (假设最高次 ≤ 3)
+    const f0 = evalAt(0);          // f(0) = d
+    const f1 = evalAt(1);          // f(1) = a+b+c+d
+    const fm1 = evalAt(-1);        // f(-1) = -a+b-c+d (for cubic: -a3+a2-a1+a0)
+    const f2 = evalAt(2);          // f(2) = 8a3+4a2+2a1+a0
+
+    if ([f0, f1, fm1, f2].some(v => isNaN(v) || !isFinite(v))) {
+        throw new Error("表达式无法解析，请检查格式");
+    }
+
+    // 解线性方程组求系数
+    // f0 = d
+    // f1 = a3 + a2 + a1 + d
+    // fm1 = -a3 + a2 - a1 + d
+    // f2 = 8a3 + 4a2 + 2a1 + d
+    const d = f0;
+    const sum1 = f1 - d;       // a3 + a2 + a1
+    const sumM1 = fm1 - d;     // -a3 + a2 - a1
+    const sum2 = f2 - d;       // 8a3 + 4a2 + 2a1
+
+    const a2_plus_a0 = (sum1 + sumM1) / 2;  // a2
+    const a3_plus_a1 = (sum1 - sumM1) / 2;  // a3 + a1
+
+    // 8a3 + 4a2 + 2a1 = sum2
+    // a3 + a1 = a3_plus_a1 → a1 = a3_plus_a1 - a3
+    // 8a3 + 4*a2_plus_a0 + 2*(a3_plus_a1 - a3) = sum2
+    // 8a3 + 4*a2_plus_a0 + 2*a3_plus_a1 - 2a3 = sum2
+    // 6a3 = sum2 - 4*a2_plus_a0 - 2*a3_plus_a1
+    const a3 = (sum2 - 4 * a2_plus_a0 - 2 * a3_plus_a1) / 6;
+    const a1 = a3_plus_a1 - a3;
+
+    return {
+        a3, a2: a2_plus_a0, a1, a0: d,
+        // 返回 [常数项, x系数, x²系数, x³系数]
+        coeffs: [d, a1, a2_plus_a0, a3],
+    };
+}
+
+function solveEquation(equationStr) {
+    solveSteps.value = [];
+    solveResult.value = null;
+    const steps = [];
+
+    function done(result) {
+        solveSteps.value = steps;
+        solveResult.value = result;
+        return result;
+    }
+
+    let eq = equationStr.replace(/\s/g, '').toLowerCase();
+    const parts = eq.split('=');
+    if (parts.length !== 2) throw new Error("请输入正确的方程格式（含=）");
+
+    const left = parts[0] || '0';
+    const right = parts[1] || '0';
+
+    steps.push({ text: `原方程: ${left} = ${right}`, hl: false });
+
+    // ===== 非多项式方程检测 =====
+    // 直接分析原始左右两边（不做移项），匹配特定模式
+
+    // sqrt(ax+b) = c  或  sqrt(ax+b) = c
+    let m = left.match(/^sqrt\((.+)\)$/) || left.match(/^√\((.+)\)$/);
+    if (m) {
+        const inner = m[1];
+        const result = solveRadical(inner, right, steps);
+        if (result) {
+            return done(result);
+        }
+    }
+
+    // a/x + b = c  (左式含 /x)
+    m = left.match(/^(.+)\/x\s*([+-].+)?$/);
+    if (m && !left.includes('^') && !left.includes('sqrt') && !left.includes('sin') && !left.includes('cos') && !left.includes('tan') && !left.includes('ln') && !left.includes('abs')) {
+        const result = solveRational(left, right, steps);
+        if (result) {
+            return done(result);
+        }
+    }
+
+    // a^x = b  (指数方程)
+    if (/^[\d.]+?\^x$/.test(left) && /^[\d.+-]+$/.test(right)) {
+        const result = solveExponential(left, right, steps);
+        if (result) {
+            return done(result);
+        }
+    }
+
+    // ln(x) = a  (对数方程)
+    if (/^ln\(x\)$/.test(left) && /^[\d.+-]+$/.test(right)) {
+        const result = solveLogarithmic(right, steps);
+        if (result) {
+            return done(result);
+        }
+    }
+
+    // |x| = a 或 abs(x) = a (绝对值方程)
+    m = left.match(/^abs\((.+)\)$/) || left.match(/^\|(.+)\|$/);
+    if (m && /^[\d.+-]+$/.test(right)) {
+        const result = solveAbsolute(m[1], right, steps);
+        if (result) {
+            return done(result);
+        }
+    }
+
+    // sin(x)=a, cos(x)=a, tan(x)=a (三角方程)
+    m = left.match(/^(sin|cos|tan)\((.+)\)$/);
+    if (m && /^[\d.+-]+$/.test(right)) {
+        const result = solveTrig(m[1], m[2], right, steps);
+        if (result) {
+            return done(result);
+        }
+    }
+
+    // ===== 多项式方程求解 =====
+    // 移项：左 - 右 = 0
+    const combinedExpr = `(${left})-(${right})`;
+    steps.push({ text: `移项: ${combinedExpr} = 0`, hl: false });
+
+    const poly = parsePolynomial(combinedExpr);
+    const [c, b, a, a3] = poly.coeffs;
+
+    // 确定有效次数（从高到低）
+    const eps = 1e-10;
+    let degree = 0;
+    if (Math.abs(a3) > eps) degree = 3;
+    else if (Math.abs(a) > eps) degree = 2;
+    else if (Math.abs(b) > eps) degree = 1;
+
+    // 显示化简后的方程
+    const simplified = fmtPoly([a3, a, b, c], ['x^3', 'x^2', 'x', '']);
+    steps.push({ text: `化简: ${simplified} = 0`, hl: true });
+
+    let result;
+
+    if (degree === 3) {
+        result = solveCubic(a3, a, b, c, steps);
+    } else if (degree === 2) {
+        result = solveQuadratic(a, b, c, steps);
+    } else if (degree === 1) {
+        result = solveLinear(b, c, steps);
+    } else {
+        if (Math.abs(c) < eps) {
+            result = { type: 'identity', solutions: [], display: '恒等式，任意 x 均成立' };
+            steps.push({ text: '0 = 0，恒等式，任意 x 均成立', hl: false });
+        } else {
+            result = { type: 'contradiction', solutions: [], display: '矛盾方程，无解' };
+            steps.push({ text: `${formatNum(c)} = 0，矛盾，无解`, hl: false });
+        }
+    }
+
+    return done(result);
+}
+
+// ===== 非多项式方程求解器 =====
+
+function solveRadical(inner, right, steps) {
+    // sqrt(ax+b) = c  →  ax+b = c²  →  x = (c²-b)/a
+    // inner 格式: ax+b 或 x+b 或 ax
+    steps.push({ text: `根式方程: √(${inner}) = ${right}`, hl: true });
+    const c = safeEvalSimple(right);
+    if (isNaN(c) || c < 0) throw new Error("根式方程右边必须 ≥ 0");
+    const c2 = c * c;
+    steps.push({ text: `两边平方: ${inner} = ${right}² = ${formatNum(c2)}`, hl: false });
+
+    const poly = parsePolynomial(`(${inner})-(${formatNum(c2)})`);
+    const [d, b, a] = poly.coeffs;
+
+    if (Math.abs(a) > 1e-10) {
+        steps.push({ text: `化为: ${formatCoeff2(a)}x ${formatCoeff2(b)} = 0`, hl: false });
+        const x = -b / a;
+        steps.push({ text: `x = ${formatNum(-b)} / ${formatNum(a)} = ${formatNum(x)}`, hl: false });
+        steps.push({ text: `✓ x = ${formatNum(x)}`, hl: true });
+        return { type: 'radical', degree: 1, solutions: [formatNum(x)], display: `x = ${formatNum(x)}` };
+    } else if (Math.abs(b) > 1e-10) {
+        const x = -d / b;
+        steps.push({ text: `x = ${formatNum(-d)} / ${formatNum(b)} = ${formatNum(x)}`, hl: false });
+        steps.push({ text: `✓ x = ${formatNum(x)}`, hl: true });
+        return { type: 'radical', degree: 1, solutions: [formatNum(x)], display: `x = ${formatNum(x)}` };
+    }
+    throw new Error("根式方程无法求解");
+}
+
+function solveRational(left, right, steps) {
+    // a/x + b = c  →  a/x = c-b  →  x = a/(c-b)
+    steps.push({ text: `分式方程: ${left} = ${right}`, hl: true });
+    const c = safeEvalSimple(right.replace(/\^/g, '**'));
+    if (isNaN(c)) throw new Error("右边无法计算");
+
+    // 解析 a/x + b 形式
+    const parts = left.split(/([+-])/);
+    let a = 1, b = 0, sign = 1;
+    for (let i = 0; i < parts.length; i++) {
+        const p = parts[i].trim();
+        if (p === '+') sign = 1;
+        else if (p === '-') sign = -1;
+        else if (p.includes('/x')) {
+            const num = p.replace('/x', '').trim();
+            a = sign * (num === '' || num === '+' ? 1 : num === '-' ? -1 : safeEvalSimple(num));
+        } else if (p && !p.includes('/')) {
+            b += sign * safeEvalSimple(p);
+        }
+    }
+    if (isNaN(a) || isNaN(b)) throw new Error("分式方程格式无法解析");
+
+    steps.push({ text: `a = ${formatNum(a)}, b = ${formatNum(b)}, c = ${formatNum(c)}`, hl: false });
+    const denom = c - b;
+    if (Math.abs(denom) < 1e-10) throw new Error("分母为零，无解");
+    const x = a / denom;
+    steps.push({ text: `${formatNum(a)}/x = ${formatNum(c)} − ${formatNum(b)} = ${formatNum(denom)}`, hl: false });
+    steps.push({ text: `x = ${formatNum(a)} / ${formatNum(denom)} = ${formatNum(x)}`, hl: false });
+    steps.push({ text: `✓ x = ${formatNum(x)}`, hl: true });
+    return { type: 'rational', degree: 1, solutions: [formatNum(x)], display: `x = ${formatNum(x)}` };
+}
+
+function solveExponential(left, right, steps) {
+    // a^x = b  →  x = ln(b)/ln(a)
+    const a = parseFloat(left.replace('^x', ''));
+    const b = parseFloat(right);
+    if (a <= 0 || a === 1) throw new Error("指数底数必须 > 0 且 ≠ 1");
+    if (b <= 0) throw new Error("指数方程右边必须 > 0");
+    steps.push({ text: `指数方程: ${a}^x = ${b}`, hl: true });
+    steps.push({ text: `取自然对数: x·ln(${a}) = ln(${b})`, hl: false });
+    const x = Math.log(b) / Math.log(a);
+    steps.push({ text: `x = ln(${b}) / ln(${a}) = ${formatNum(x)}`, hl: false });
+    steps.push({ text: `✓ x = ${formatNum(x)}`, hl: true });
+    return { type: 'exponential', degree: 0, solutions: [formatNum(x)], display: `x = ${formatNum(x)}` };
+}
+
+function solveLogarithmic(right, steps) {
+    // ln(x) = a  →  x = e^a
+    const a = safeEvalSimple(right);
+    steps.push({ text: `对数方程: ln(x) = ${formatNum(a)}`, hl: true });
+    const x = Math.exp(a);
+    steps.push({ text: `x = e^${formatNum(a)} = ${formatNum(x)}`, hl: false });
+    steps.push({ text: `✓ x = ${formatNum(x)}`, hl: true });
+    return { type: 'logarithmic', degree: 0, solutions: [formatNum(x)], display: `x = ${formatNum(x)}` };
+}
+
+function solveAbsolute(inner, right, steps) {
+    // |x| = a  →  x = ±a
+    const a = safeEvalSimple(right);
+    if (a < 0) {
+        steps.push({ text: `|${inner}| = ${formatNum(a)} < 0，无解`, hl: true });
+        return { type: 'absolute', degree: 0, solutions: [], display: '无解' };
+    }
+    steps.push({ text: `绝对值方程: |${inner}| = ${formatNum(a)}`, hl: true });
+    if (Math.abs(a) < 1e-10) {
+        steps.push({ text: `✓ x = 0`, hl: true });
+        return { type: 'absolute', degree: 0, solutions: ['0'], display: 'x = 0' };
+    }
+    steps.push({ text: `✓ x₁ = ${formatNum(a)}`, hl: true });
+    steps.push({ text: `✓ x₂ = ${formatNum(-a)}`, hl: true });
+    return { type: 'absolute', degree: 0, solutions: [formatNum(a), formatNum(-a)], display: `x₁ = ${formatNum(a)}  |  x₂ = ${formatNum(-a)}` };
+}
+
+function solveTrig(func, inner, right, steps) {
+    const a = safeEvalSimple(right);
+    steps.push({ text: `三角方程: ${func}(${inner}) = ${formatNum(a)}`, hl: true });
+    if (Math.abs(a) > 1) throw new Error(`${func} 的值域为 [-1, 1]，${formatNum(a)} 超出范围`);
+
+    const useDeg = useDegrees.value;
+    const radVal = func === 'sin' ? Math.asin(a) : func === 'cos' ? Math.acos(a) : Math.atan(a);
+    const degVal = radVal * 180 / Math.PI;
+
+    if (func === 'sin') {
+        if (useDeg) {
+            steps.push({ text: `x₁ = arcsin(${formatNum(a)}) = ${formatNum(degVal)}°`, hl: false });
+            steps.push({ text: `✓ x₁ = ${formatNum(degVal)}°`, hl: true });
+            const x2 = 180 - degVal;
+            steps.push({ text: `x₂ = 180° − ${formatNum(degVal)}° = ${formatNum(x2)}°`, hl: false });
+            steps.push({ text: `✓ x₂ = ${formatNum(x2)}°`, hl: true });
+            return { type: 'trig', degree: 0, solutions: [formatNum(degVal) + '°', formatNum(x2) + '°'], display: `x₁ = ${formatNum(degVal)}°  |  x₂ = ${formatNum(x2)}°` };
+        }
+        steps.push({ text: `x₁ = arcsin(${formatNum(a)}) = ${formatNum(radVal)} rad`, hl: false });
+        const x2 = Math.PI - radVal;
+        steps.push({ text: `x₂ = π − ${formatNum(radVal)} = ${formatNum(x2)} rad`, hl: false });
+        steps.push({ text: `✓ x₁ = ${formatNum(radVal)} rad  |  x₂ = ${formatNum(x2)} rad`, hl: true });
+        return { type: 'trig', degree: 0, solutions: [formatNum(radVal) + ' rad', formatNum(x2) + ' rad'], display: `x₁ = ${formatNum(radVal)} rad  |  x₂ = ${formatNum(x2)} rad` };
+    } else if (func === 'cos') {
+        if (useDeg) {
+            steps.push({ text: `x₁ = arccos(${formatNum(a)}) = ${formatNum(degVal)}°`, hl: false });
+            steps.push({ text: `✓ x₁ = ${formatNum(degVal)}°`, hl: true });
+            const x2 = -degVal;
+            steps.push({ text: `x₂ = −${formatNum(degVal)}°`, hl: false });
+            steps.push({ text: `✓ x₂ = ${formatNum(x2)}°`, hl: true });
+            return { type: 'trig', degree: 0, solutions: [formatNum(degVal) + '°', formatNum(x2) + '°'], display: `x₁ = ${formatNum(degVal)}°  |  x₂ = ${formatNum(x2)}°` };
+        }
+        steps.push({ text: `x₁ = arccos(${formatNum(a)}) = ${formatNum(radVal)} rad`, hl: false });
+        const x2 = -radVal;
+        steps.push({ text: `✓ x₁ = ${formatNum(radVal)} rad  |  x₂ = ${formatNum(x2)} rad`, hl: true });
+        return { type: 'trig', degree: 0, solutions: [formatNum(radVal) + ' rad', formatNum(x2) + ' rad'], display: `x₁ = ${formatNum(radVal)} rad  |  x₂ = ${formatNum(x2)} rad` };
+    } else { // tan
+        if (useDeg) {
+            steps.push({ text: `x = arctan(${formatNum(a)}) = ${formatNum(degVal)}°`, hl: false });
+            steps.push({ text: `✓ x = ${formatNum(degVal)}° + k·180° (k∈Z)`, hl: true });
+            return { type: 'trig', degree: 0, solutions: [formatNum(degVal) + '°'], display: `x = ${formatNum(degVal)}°` };
+        }
+        steps.push({ text: `x = arctan(${formatNum(a)}) = ${formatNum(radVal)} rad`, hl: false });
+        steps.push({ text: `✓ x = ${formatNum(radVal)} rad + kπ (k∈Z)`, hl: true });
+        return { type: 'trig', degree: 0, solutions: [formatNum(radVal) + ' rad'], display: `x = ${formatNum(radVal)} rad` };
+    }
+}
+
+// 简单表达式求值（不使用数学函数库）
+function safeEvalSimple(expr) {
+    const s = String(expr).trim().replace(/\^/g, '**');
+    try {
+        return new Function(`"use strict"; return (${s});`)();
+    } catch {
+        return NaN;
+    }
+}
+
+function formatCoeff(v) {
+    if (Math.abs(v - 1) < 1e-10) return '1';
+    if (Math.abs(v + 1) < 1e-10) return '-1';
+    return formatNum(v);
+}
+
+function solveLinear(b, c, steps) {
+    const eqText = fmtPoly([b, c], ['x', '']);
+    steps.push({ text: `一次方程: ${eqText} = 0`, hl: true });
+    const x = -c / b;
+    steps.push({ text: `移项: ${formatCoeff2(b)}x = ${formatNum(-c)}`, hl: false });
+    steps.push({ text: `x = ${formatNum(-c)} ÷ ${formatNum(b)} = ${formatNum(x)}`, hl: false });
+    steps.push({ text: `✓ 解: x = ${formatNum(x)}`, hl: true });
+    return {
+        type: 'linear', b, c, degree: 1,
+        solutions: [formatNum(x)], display: `x = ${formatNum(x)}`,
+    };
+}
+
+// 格式化多项式: [a, b, c, d] → "ax^3 + bx^2 + cx + d"
+function fmtPoly(coeffs, vars = ['x^3', 'x^2', 'x', '']) {
+    const terms = [];
+    for (let i = 0; i < coeffs.length; i++) {
+        const v = coeffs[i];
+        if (Math.abs(v) < 1e-10) continue;
+        const sign = terms.length === 0 ? (v < 0 ? '-' : '') : (v >= 0 ? ' + ' : ' - ');
+        const absVal = Math.abs(v);
+        const varPart = vars[i] || '';
+        if (Math.abs(absVal - 1) < 1e-10 && varPart) {
+            terms.push(`${sign}${varPart}`);
+        } else {
+            terms.push(`${sign}${formatNum(absVal)}${varPart}`);
+        }
+    }
+    return terms.join('') || '0';
+}
+
+function solveQuadratic(a, b, c, steps) {
+    const eqText = fmtPoly([a, b, c], ['x^2', 'x', '']);
+    steps.push({ text: `二次方程: ${eqText} = 0`, hl: true });
+    steps.push({ text: `系数: a = ${formatNum(a)}, b = ${formatNum(b)}, c = ${formatNum(c)}`, hl: false });
+
+    const delta = b * b - 4 * a * c;
+    steps.push({ text: `判别式 Δ = b² − 4ac = ${formatNum(b)}² − 4×${formatNum(a)}×${formatNum(c)} = ${formatNum(delta)}`, hl: false });
+
+    if (delta < -1e-10) {
+        const realPart = -b / (2 * a);
+        const imagPart = Math.sqrt(-delta) / (2 * a);
+        steps.push({ text: `Δ < 0，有两个共轭复根`, hl: false });
+        steps.push({ text: `求根公式: x = (−b ± √Δ) / (2a) = (${formatNum(-b)} ± √${formatNum(-delta)}i) / ${formatNum(2 * a)}`, hl: false });
+        steps.push({ text: `实部 = −b/(2a) = ${formatNum(realPart)}`, hl: false });
+        steps.push({ text: `虚部 = √(−Δ)/(2a) = ${formatNum(imagPart)}`, hl: false });
+        const display = `x₁ = ${formatNum(realPart)} + ${formatNum(imagPart)}i\nx₂ = ${formatNum(realPart)} − ${formatNum(imagPart)}i`;
+        steps.push({ text: `✓ x₁ = ${formatNum(realPart)} + ${formatNum(imagPart)}i`, hl: true });
+        steps.push({ text: `✓ x₂ = ${formatNum(realPart)} − ${formatNum(imagPart)}i`, hl: true });
+        return {
+            type: 'quadratic', a, b, c, delta, degree: 2,
+            solutions: [`${formatNum(realPart)}+${formatNum(imagPart)}i`, `${formatNum(realPart)}-${formatNum(imagPart)}i`],
+            display,
+        };
+    } else if (Math.abs(delta) < 1e-10) {
+        const x = -b / (2 * a);
+        steps.push({ text: `Δ = 0，有一个重根`, hl: false });
+        steps.push({ text: `x = −b/(2a) = ${formatNum(-b)} / ${formatNum(2 * a)} = ${formatNum(x)}`, hl: false });
+        const display = `x = ${formatNum(x)} (重根)`;
+        steps.push({ text: `✓ ${display}`, hl: true });
+        return {
+            type: 'quadratic', a, b, c, delta: 0, degree: 2,
+            solutions: [formatNum(x)], display,
+        };
+    } else {
+        const sqrtDelta = Math.sqrt(delta);
+        const x1 = (-b + sqrtDelta) / (2 * a);
+        const x2 = (-b - sqrtDelta) / (2 * a);
+        steps.push({ text: `Δ > 0，有两个不等实根`, hl: false });
+        steps.push({ text: `√Δ = √${formatNum(delta)} = ${formatNum(sqrtDelta)}`, hl: false });
+        steps.push({ text: `x₁ = (−b + √Δ)/(2a) = (${formatNum(-b)} + ${formatNum(sqrtDelta)}) / ${formatNum(2 * a)} = ${formatNum(x1)}`, hl: false });
+        steps.push({ text: `x₂ = (−b − √Δ)/(2a) = (${formatNum(-b)} − ${formatNum(sqrtDelta)}) / ${formatNum(2 * a)} = ${formatNum(x2)}`, hl: false });
+        const display = `x₁ = ${formatNum(x1)}\nx₂ = ${formatNum(x2)}`;
+        steps.push({ text: `✓ x₁ = ${formatNum(x1)}`, hl: true });
+        steps.push({ text: `✓ x₂ = ${formatNum(x2)}`, hl: true });
+        return {
+            type: 'quadratic', a, b, c, delta, degree: 2,
+            solutions: [formatNum(x1), formatNum(x2)], display,
+        };
+    }
+}
+
+function solveCubic(a3, a2, a1, a0, steps) {
+    const eqText = fmtPoly([a3, a2, a1, a0], ['x^3', 'x^2', 'x', '']);
+    steps.push({ text: `三次方程: ${eqText} = 0`, hl: true });
+
+    // 化为标准形式 x³ + px² + qx + r = 0
+    const p = a2 / a3;
+    const q = a1 / a3;
+    const r = a0 / a3;
+    const stdEq = fmtPoly([1, p, q, r], ['x^3', 'x^2', 'x', '']);
+    steps.push({ text: `标准化 (除以${formatNum(a3)}): ${stdEq} = 0`, hl: false });
+
+    // 用 Cardano 方法
+    // 先消去二次项: 令 x = y - p/3, 得 y³ + Py + Q = 0
+    const P = q - (p * p) / 3;
+    const Q = r - (p * q) / 3 + (2 * p * p * p) / 27;
+    steps.push({ text: `令 x = y - p/3, 消去二次项:`, hl: false });
+    steps.push({ text: `P = q - p²/3 = ${formatNum(P)}`, hl: false });
+    steps.push({ text: `Q = r - pq/3 + 2p³/27 = ${formatNum(Q)}`, hl: false });
+    const depEq = fmtPoly([1, 0, P, Q], ['y^3', 'y^2', 'y', '']);
+    steps.push({ text: `化为: ${depEq} = 0`, hl: true });
+
+    const discriminant = (Q * Q) / 4 + (P * P * P) / 27;
+    steps.push({ text: `判别式: Δ = Q²/4 + P³/27 = ${formatNum(discriminant)}`, hl: false });
+
+    const solutions = [];
+    const shift = p / 3; // 回代偏移量
+
+    if (Math.abs(discriminant) < 1e-10) {
+        // Δ = 0：三个实根（至少两个相等）
+        steps.push({ text: 'Δ = 0，有三个实根（至少两个相等）', hl: false });
+        const u = Math.cbrt(-Q / 2);
+        const x1 = 2 * u - shift;
+        const x2 = -u - shift;
+        solutions.push(formatNum(x1), formatNum(x2), formatNum(x2));
+        steps.push({ text: `u = ∛(−Q/2) = ${formatNum(u)}`, hl: false });
+        steps.push({ text: `✓ x₁ = 2u − p/3 = ${formatNum(x1)}`, hl: true });
+        steps.push({ text: `✓ x₂ = x₃ = −u − p/3 = ${formatNum(x2)} (重根)`, hl: true });
+    } else if (discriminant > 1e-10) {
+        // Δ > 0：一个实根 + 两个共轭复根
+        steps.push({ text: 'Δ > 0，有一个实根和两个共轭复根', hl: false });
+        const sqrtD = Math.sqrt(discriminant);
+        const u = Math.cbrt(-Q / 2 + sqrtD);
+        const v = Math.cbrt(-Q / 2 - sqrtD);
+        const x1 = u + v - shift;
+        solutions.push(formatNum(x1));
+        steps.push({ text: `√Δ = ${formatNum(sqrtD)}`, hl: false });
+        steps.push({ text: `u = ∛(−Q/2 + √Δ) = ${formatNum(u)}`, hl: false });
+        steps.push({ text: `v = ∛(−Q/2 − √Δ) = ${formatNum(v)}`, hl: false });
+
+        const realPart = -(u + v) / 2 - shift;
+        const imagPart = (Math.sqrt(3) / 2) * (u - v);
+        solutions.push(`${formatNum(realPart)}+${formatNum(Math.abs(imagPart))}i`);
+        solutions.push(`${formatNum(realPart)}-${formatNum(Math.abs(imagPart))}i`);
+        steps.push({ text: `✓ x₁ = u + v − p/3 = ${formatNum(x1)} (实根)`, hl: true });
+        steps.push({ text: `✓ x₂ = ${formatNum(realPart)} + ${formatNum(Math.abs(imagPart))}i`, hl: true });
+        steps.push({ text: `✓ x₃ = ${formatNum(realPart)} − ${formatNum(Math.abs(imagPart))}i`, hl: true });
+    } else {
+        // Δ < 0：三个不等实根（三角函数法）
+        steps.push({ text: 'Δ < 0，有三个不等实根（三角函数法）', hl: false });
+        const phi = Math.acos((-Q / 2) / Math.sqrt(-(P * P * P) / 27));
+        const r = 2 * Math.sqrt(-P / 3);
+        steps.push({ text: `φ = arccos(−Q/2 / √(−P³/27)) = ${formatNum(phi)} rad`, hl: false });
+        steps.push({ text: `r = 2√(−P/3) = ${formatNum(r)}`, hl: false });
+        for (let k = 0; k < 3; k++) {
+            const angle = (phi + 2 * Math.PI * k) / 3;
+            const xk = r * Math.cos(angle) - shift;
+            solutions.push(formatNum(xk));
+            steps.push({ text: `✓ x${k + 1} = r·cos((φ+2π·${k})/3) − p/3 = ${formatNum(xk)}`, hl: true });
+        }
+    }
+
+    const display = solutions.map((s, i) => `x${subNum(i + 1)} = ${s}`).join('\n');
+    return {
+        type: 'cubic', degree: 3,
+        a3, a: a2, b: a1, c: a0,
+        solutions, display,
+    };
+}
+
+function formatCoeff2(v) {
+    if (Math.abs(v - 1) < 1e-10) return '+';
+    if (Math.abs(v + 1) < 1e-10) return '-';
+    if (v >= 0) return `+${formatNum(v)}`;
+    return `-${formatNum(Math.abs(v))}`;
+}
+
+function subNum(n) {
+    const subs = ['₀', '₁', '₂', '₃', '₄', '₅'];
+    return subs[n] || String(n);
+}
+
+// 插入方程模板到输入栏
+function insertSolveHint(hint) {
+    playClick();
+    inputText.value = hint;
 }
 
 function clearResults() {
@@ -501,6 +1199,11 @@ function evaluateSingle(expr) {
 // 点击预设函数按钮：如输入栏有有效数字，则将其作为参数嵌入表达式
 function insertHint(hint) {
     playClick();
+    // 方程模板：直接替换输入
+    if (calcMode.value === 'solve' && hint.includes('=')) {
+        inputText.value = hint;
+        return;
+    }
     const trimmed = inputText.value.trim();
     // 检查输入栏是否为一个有效数字（支持整数、小数、负数、科学计数法）
     const isNumber = trimmed !== "" && !isNaN(Number(trimmed)) && isFinite(Number(trimmed));
@@ -519,6 +1222,12 @@ function insertHint(hint) {
             inputText.value = trimmed + "!";
         } else if (isNumber && hint === "x%") {
             inputText.value = trimmed + "%";
+        } else if (isNumber && hint === "1/x") {
+            inputText.value = `1/(${trimmed})`;
+        } else if (isNumber && hint === "x^2") {
+            inputText.value = `${trimmed}^2`;
+        } else if (isNumber && hint === "x^3") {
+            inputText.value = `${trimmed}^3`;
         } else {
             inputText.value = trimmed ? trimmed + " " + hint : hint;
         }
@@ -536,7 +1245,27 @@ function handleKeyboardSubmit() {
     }
     if (!input) return;
 
-    // 有上次结果且输入以运算符开头 → 连算
+    // ===== 方程求解模式 =====
+    if (calcMode.value === 'solve' && input.includes('=')) {
+        try {
+            const result = solveEquation(input);
+            numbers.value = result.solutions.map(s => {
+                const match = String(s).match(/^([-+]?\d+\.?\d*)/);
+                return match ? Number(match[1]) : NaN;
+            }).filter(n => !isNaN(n));
+            displayResult.value = result.display.replace(/\n/g, '  |  ');
+            lastInput.value = input;
+            lastResultValue.value = numbers.value.length > 0 ? numbers.value[0] : null;
+            addHistory("SOLVE", input, numbers.value.filter(n => isFinite(n)));
+            inputText.value = "";
+            return;
+        } catch (err) {
+            errorMsg.value = err.message || String(err);
+            return;
+        }
+    }
+
+    // ===== 标准计算模式 =====
     let expr = input;
     if (lastResultValue.value !== null && /^[+\-*/^%]/.test(input)) {
         expr = String(lastResultValue.value) + ' ' + input;
@@ -622,21 +1351,26 @@ function formatNum(n) {
 
                 <div class="calc-screen">
                     <div class="screen-status">
-                        <span class="status-mode">COMP</span>
+                        <span class="status-mode">{{ calcMode === 'solve' ? 'SOLVE' : 'COMP' }}</span>
+                        <span v-if="useDegrees" class="status-deg">DEG</span>
+                        <span v-else class="status-deg">RAD</span>
+                        <span v-if="useInverse" class="status-inv">INV</span>
                         <span v-if="stats" class="status-stat">STAT</span>
                         <span class="status-mem" v-if="history.length">M</span>
                         <span class="status-bat">▮▮▮</span>
                     </div>
-                    <div class="screen-expr" :class="{ 'screen-hidden': !(displayResult && lastInput) }">
+                    <div class="screen-expr" :class="{ 'screen-hidden': !(displayResult && lastInput) && calcMode !== 'solve' }">
                         {{ lastInput || '\u00A0' }}
                     </div>
                     <div class="screen-input">
                         <input v-model="inputText" class="screen-input-field"
-                            :placeholder="displayResult ? '' : '输入表达式，逗号/空格分隔多值...'"
+                            :placeholder="displayResult ? '' : (calcMode === 'solve' ? '输入方程...' : '输入表达式，逗号/空格分隔多值...')"
                             @keydown.space.prevent="inputText += ' '" @keyup.enter="handleKeyboardSubmit" />
                     </div>
                     <div class="screen-output">
-                        <div class="output-row">
+                        <div class="output-row" ref="outputRow"
+                            @mousedown="startDragScroll" @mousemove="dragScroll" @mouseup="stopDragScroll" @mouseleave="stopDragScroll"
+                            @touchstart="startDragScroll" @touchmove="dragScroll" @touchend="stopDragScroll">
                             <span v-show="displayResult" class="output-value">{{ displayResult }}<span v-if="resultUnit"
                                     class="output-unit"> {{ resultUnit }}</span></span>
                             <span v-show="!displayResult && previewResult" class="output-value dim">{{
@@ -656,10 +1390,40 @@ function formatNum(n) {
                     </div>
                 </div>
 
-                <div class="calc-hints-area">
-                    <span v-for="h in functionHints" :key="h" class="hint-tag"
-                        :class="{ 'hint-pace': paceHints.has(h) }" @click="insertHint(h)"
-                        @mouseenter="showTooltip($event, hintTooltips[h] || h)" @mouseleave="hideTooltip">{{ h }}</span>
+                <!-- ===== 功能切换按钮行 ===== -->
+                <div class="mode-toggle-row">
+                    <button class="mode-btn mode-standard" :class="{ active: calcMode === 'standard' }"
+                        @click="calcMode = 'standard'; playClick()" title="标准计算功能">
+                        <span class="mode-icon">📐</span>标准
+                    </button>
+                    <button class="mode-btn mode-solve" :class="{ active: calcMode === 'solve' }"
+                        @click="calcMode = 'solve'; playClick()" title="Solve equations">
+                        <span class="mode-icon">🔢</span>方程
+                    </button>
+                    <button class="mode-btn mode-deg" :class="{ active: useDegrees }"
+                        @click="useDegrees = !useDegrees; playClick()"
+                        :title="useDegrees ? '当前：角度 (DEG)，点击切换弧度' : '当前：弧度 (RAD)，点击切换角度'">
+                        <span class="mode-icon">{{ useDegrees ? '°' : 'π' }}</span>{{ useDegrees ? '角度' : '弧度' }}
+                    </button>
+                    <button class="mode-btn mode-inv" :class="{ active: useInverse }"
+                        @click="useInverse = !useInverse; playClick()"
+                        :title="useInverse ? '当前：反函数，点击切换正函数' : '当前：正函数，点击切换反函数'">
+                        <span class="mode-icon">⁻¹</span>{{ useInverse ? '反函数' : '正函数' }}
+                    </button>
+                </div>
+
+                <!-- ===== 预设函数矩阵（动态，固定高度）===== -->
+                <div class="calc-hints-area" :class="{ 'hints-4col': calcMode === 'solve' }">
+                    <template v-for="(h, i) in displayHints" :key="i">
+                        <span v-if="h" class="hint-tag"
+                            :class="{
+                                'hint-pace': paceHints.has(h),
+                                'hint-solve': calcMode === 'solve',
+                            }"
+                            @click="insertHint(h)"
+                            @mouseenter="showTooltip($event, hintTooltips[h] || h)" @mouseleave="hideTooltip">{{ h }}</span>
+                        <span v-else class="hint-tag hint-empty"></span>
+                    </template>
                 </div>
 
                 <div class="calc-keypad">
@@ -674,15 +1438,19 @@ function formatNum(n) {
                             }" @click="calcKeyTap(key)">{{ key }}</button>
                         </template>
                     </div>
-                    <div class="calc-space-row">
+                    <div class="calc-space-row" :class="{ 'has-eq': calcMode === 'solve' }">
                         <button class="calc-btn calc-space" :class="{ 'calc-pressed': activeKey === 'Space' }"
                             @click="calcKeyTap('Space')">SPACE</button>
+                        <button v-if="calcMode === 'solve'" class="calc-btn calc-eq-key"
+                            @click="playClick(); inputText += '='">=</button>
                     </div>
                     <div class="calc-bottom-row" :class="{ 'has-detail': stats }">
                         <button class="calc-btn calc-clear" :class="{ 'calc-pressed': activeKey === 'AC' }"
                             @click="calcClear">AC</button>
-                        <button class="calc-btn calc-equals" :class="{ 'calc-pressed': activeKey === '=' }"
+                        <button v-if="calcMode === 'standard'" class="calc-btn calc-equals" :class="{ 'calc-pressed': activeKey === '=' }"
                             @click="playClick(); handleKeyboardSubmit()">=</button>
+                        <button v-if="calcMode === 'solve'" class="calc-btn calc-solve-btn"
+                            @click="playClick(); handleKeyboardSubmit()">SOLVE</button>
                         <button v-if="stats" class="calc-btn calc-detail" @click="showStats = true">DETAIL</button>
                     </div>
                 </div>
@@ -691,16 +1459,32 @@ function formatNum(n) {
             <!-- ====== 右侧：统计信息面板 ====== -->
             <div class="calc-info" :class="{ 'panel-hidden': !showStats }">
                 <div class="info-top-bar">
-                    <span class="info-brand">STAT</span>
+                    <span class="info-brand">{{ calcMode === 'solve' && solveSteps.length > 0 ? 'SOLVE' : 'STAT' }}</span>
                     <button class="info-back-btn" @click="showStats = false">← 返回</button>
                 </div>
                 <div class="info-lcd">
-                    <div v-if="!stats && history.length === 0" class="info-empty">
-                        <span class="info-empty-icon">📊</span>
-                        <p>输入数据后将在此显示统计结果</p>
+                    <!-- ===== 解题过程（求解模式）===== -->
+                    <div v-if="calcMode === 'solve' && solveSteps.length > 0" class="info-solve">
+                        <div class="info-title">📐 解题过程</div>
+                        <div class="solve-steps">
+                            <div v-for="(step, i) in solveSteps" :key="i" class="solve-step"
+                                :class="{ 'solve-step-hl': step.hl }">
+                                <span class="solve-step-num">{{ i + 1 }}</span>
+                                <span class="solve-step-text">{{ step.text }}</span>
+                            </div>
+                        </div>
+                        <div class="solve-actions">
+                            <button class="info-clear-btn info-clear-sm" @click="solveSteps = []; solveResult = null; showStats = false">清除</button>
+                            <button class="info-back-btn" @click="showStats = false">← 返回</button>
+                        </div>
                     </div>
 
-                    <div v-if="stats" class="info-stats">
+                    <div v-if="!stats && history.length === 0 && !(calcMode === 'solve' && solveSteps.length > 0)" class="info-empty">
+                        <span class="info-empty-icon">{{ calcMode === 'solve' ? '🔢' : '📊' }}</span>
+                        <p>{{ calcMode === 'solve' ? 'Enter equation, press Enter to solve' : 'Enter data to see statistics' }}</p>
+                    </div>
+
+                    <div v-if="stats && !(calcMode === 'solve' && solveSteps.length > 0)" class="info-stats">
                         <div class="info-title">统计结果</div>
                         <div class="info-grid">
                             <div class="info-item" @click="copyToClipboard(stats.count, 0)">
@@ -739,7 +1523,7 @@ function formatNum(n) {
                         <button class="info-clear-btn" @click="clearResults">清除结果</button>
                     </div>
 
-                    <div class="info-grade" v-if="stats && rankedData.length > 0">
+                    <div class="info-grade" v-if="stats && rankedData.length > 0 && !(calcMode === 'solve' && solveSteps.length > 0)">
                         <div class="info-title" @click="showGrade = !showGrade" style="cursor:pointer">
                             等级评定 {{ showGrade ? '▾' : '▸' }}
                         </div>
@@ -781,7 +1565,7 @@ function formatNum(n) {
                         </div>
                     </div>
 
-                    <div v-if="history.length > 0" class="info-history">
+                    <div v-if="history.length > 0 && !(calcMode === 'solve' && solveSteps.length > 0)" class="info-history">
                         <div class="info-title">历史记录</div>
                         <div class="history-list">
                             <div v-for="item in history" :key="item.id" class="history-item"
@@ -791,7 +1575,7 @@ function formatNum(n) {
                             </div>
                         </div>
                     </div>
-                    <div class="info-back-bottom">
+                    <div v-if="!(calcMode === 'solve' && solveSteps.length > 0)" class="info-back-bottom">
                         <button class="info-back-btn-bottom" @click="showStats = false">← 返回</button>
                     </div>
                 </div>
@@ -982,12 +1766,34 @@ function formatNum(n) {
     align-items: baseline;
     justify-content: flex-end;
     gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    min-width: 0;
+    cursor: grab;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+}
+
+.output-row::-webkit-scrollbar {
+    height: 3px;
+}
+
+.output-row::-webkit-scrollbar-thumb {
+    background: #c0c4c8;
+    border-radius: 3px;
+}
+
+.output-row::-webkit-scrollbar-track {
+    background: transparent;
 }
 
 .output-value {
-    font-size: 26px;
+    font-size: 20px;
     font-weight: 800;
     color: #111;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .output-value.dim {
@@ -1038,6 +1844,133 @@ function formatNum(n) {
     min-height: 22px;
 }
 
+/* ---- 功能切换按钮行 ---- */
+.mode-toggle-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    margin-bottom: 5px;
+    padding: 0 2px;
+    flex-shrink: 0;
+}
+
+.mode-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 7px 2px;
+    font-size: 11px;
+    font-weight: 700;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all .15s;
+    letter-spacing: 0.5px;
+    font-family: "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+    box-shadow: 0 3px 0 rgba(0, 0, 0, .18), 0 4px 6px rgba(0, 0, 0, .1);
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.mode-btn:active {
+    transform: translateY(2px);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, .15), 0 2px 3px rgba(0, 0, 0, .08);
+}
+
+.mode-icon {
+    font-size: 12px;
+}
+
+/* 标准 - 蓝色 */
+.mode-standard {
+    background: linear-gradient(180deg, #5b8def 0%, #4a7de0 40%, #3a6ad0 100%);
+    color: #fff;
+    box-shadow: 0 3px 0 #6b9df0, 0 4px 6px rgba(0, 0, 0, .12);
+    border: 1px solid #3570c0;
+}
+.mode-standard:hover { filter: brightness(1.08); }
+.mode-standard.active {
+    background: linear-gradient(180deg, #7aadff 0%, #5b8def 40%, #4a7de0 100%);
+    box-shadow: 0 1px 0 #6b9df0, 0 3px 8px rgba(74, 125, 224, .5), inset 0 1px 2px rgba(255,255,255,.2);
+    transform: translateY(2px);
+}
+
+/* 求解 - 绿色 */
+.mode-solve {
+    background: linear-gradient(180deg, #4caf8e 0%, #3d9e7a 40%, #2e8b68 100%);
+    color: #fff;
+    box-shadow: 0 3px 0 #5dbf9f, 0 4px 6px rgba(0, 0, 0, .12);
+    border: 1px solid #258060;
+}
+.mode-solve:hover { filter: brightness(1.08); }
+.mode-solve.active {
+    background: linear-gradient(180deg, #6dd4aa 0%, #4caf8e 40%, #3d9e7a 100%);
+    box-shadow: 0 1px 0 #5dbf9f, 0 3px 8px rgba(61, 158, 122, .5), inset 0 1px 2px rgba(255,255,255,.2);
+    transform: translateY(2px);
+}
+
+/* 弧度/角度 - 橙色 */
+.mode-deg {
+    background: linear-gradient(180deg, #f0a050 0%, #e09040 40%, #d08030 100%);
+    color: #fff;
+    box-shadow: 0 3px 0 #f5b565, 0 4px 6px rgba(0, 0, 0, .12);
+    border: 1px solid #c07520;
+}
+.mode-deg:hover { filter: brightness(1.08); }
+.mode-deg.active {
+    background: linear-gradient(180deg, #f5b870 0%, #f0a050 40%, #e09040 100%);
+    box-shadow: 0 1px 0 #f5b565, 0 3px 8px rgba(240, 160, 80, .5), inset 0 1px 2px rgba(255,255,255,.2);
+    transform: translateY(2px);
+}
+
+/* 正/反函数 - 紫色 */
+.mode-inv {
+    background: linear-gradient(180deg, #8b6cc0 0%, #7a5bb0 40%, #6a4aa0 100%);
+    color: #fff;
+    box-shadow: 0 3px 0 #9c7dd0, 0 4px 6px rgba(0, 0, 0, .12);
+    border: 1px solid #5a3890;
+}
+.mode-inv:hover { filter: brightness(1.08); }
+.mode-inv.active {
+    background: linear-gradient(180deg, #a080d8 0%, #8b6cc0 40%, #7a5bb0 100%);
+    box-shadow: 0 1px 0 #9c7dd0, 0 3px 8px rgba(138, 108, 192, .5), inset 0 1px 2px rgba(255,255,255,.2);
+    transform: translateY(2px);
+}
+
+/* 状态栏 DEG/RAD/INV 指示 */
+.status-deg {
+    color: #f0a050;
+    font-weight: 700;
+}
+.status-inv {
+    color: #8b6cc0;
+    font-weight: 700;
+}
+
+/* 求解模式 hint 标签 - 绿色调 */
+.hint-solve {
+    background: linear-gradient(180deg, #3a6a4a 0%, #2e5a3a 40%, #224a2e 100%) !important;
+    border-color: #4a8a5a !important;
+    color: #a0e0b0 !important;
+    font-size: 11px !important;
+    letter-spacing: 0 !important;
+    padding: 0 1px !important;
+    box-shadow:
+        0 3px 0 #4a7a5a,
+        0 4px 8px rgba(0, 0, 0, .2),
+        inset 0 1px 1px rgba(100, 220, 140, .15),
+        inset 0 -1px 2px rgba(0, 0, 0, .15) !important;
+}
+
+.hint-solve:hover {
+    filter: brightness(1.15) !important;
+    border-color: #6aaa7a !important;
+    color: #c0f0d0 !important;
+}
+
 /* ---- 预设函数矩阵 ---- */
 .calc-hints-area {
     display: grid;
@@ -1050,14 +1983,20 @@ function formatNum(n) {
     flex-shrink: 0;
 }
 
+/* 求解模式：4 列更宽 */
+.calc-hints-area.hints-4col {
+    grid-template-columns: repeat(4, 1fr);
+}
+
 .hint-tag {
     position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 9px 2px;
+    height: 30px;
+    padding: 0 2px;
     font-size: 11px;
-    overflow: visible;
+    overflow: hidden;
     text-overflow: ellipsis;
     background: linear-gradient(180deg, #4a5054 0%, #3d4347 40%, #303538 100%);
     border: 1px solid #353a3e;
@@ -1070,6 +2009,7 @@ function formatNum(n) {
     letter-spacing: 0.3px;
     text-align: center;
     white-space: nowrap;
+    box-sizing: border-box;
     box-shadow:
         0 3px 0 #5a6068,
         0 4px 8px rgba(0, 0, 0, .2),
@@ -1090,6 +2030,12 @@ function formatNum(n) {
         0 1px 0 #5a6068,
         0 2px 4px rgba(0, 0, 0, .15),
         inset 0 1px 1px rgba(255, 255, 255, .08);
+}
+
+/* 空占位：保持网格高度一致 */
+.hint-empty {
+    visibility: hidden;
+    pointer-events: none;
 }
 
 /* 配速按钮：橙色高亮 */
@@ -1867,7 +2813,7 @@ tr.grade-D .col-grade {
     border-radius: 4px;
     color: #8b9094;
     font-size: 10px;
-    padding: 3px 10px;
+    padding: 4px 10px;
     cursor: pointer;
     transition: all .15s;
 }
@@ -1916,6 +2862,77 @@ tr.grade-D .col-grade {
     color: #333;
     min-height: 0;
     position: relative;
+}
+
+/* ====== 解题步骤面板 ====== */
+.info-solve {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.solve-steps {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 8px;
+}
+
+.solve-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    font-size: 14px;
+    font-family: "SF Mono", "Menlo", "Monaco", "Fira Code", "Courier New", monospace;
+    font-feature-settings: "tnum";
+    color: #555;
+    background: transparent;
+    transition: background .1s;
+}
+
+.solve-step:hover {
+    background: #f0f2f4;
+}
+
+.solve-step-hl {
+    background: #e8f0e8;
+    border-color: #b0ccb0;
+    color: #222;
+    font-weight: 600;
+}
+
+.solve-step-hl:hover {
+    background: #d8e8d8;
+}
+
+.solve-step-num {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #c0c4c8;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Helvetica Neue", "PingFang SC", sans-serif;
+}
+
+.solve-step-hl .solve-step-num {
+    background: #4a8a5a;
+}
+
+.solve-step-text {
+    line-height: 1.7;
+    word-break: break-all;
+    font-style: normal;
 }
 
 .info-empty {
@@ -2013,6 +3030,23 @@ tr.grade-D .col-grade {
     background: #f0d0d4;
     border-color: #d0a0a4;
     color: #b03030;
+}
+
+/* 解题面板小清除按钮 */
+.info-clear-sm {
+    width: auto;
+    padding: 4px 10px;
+    font-size: 10px;
+    margin-top: 0;
+    border: 1px solid #4a5054;
+    border-radius: 4px;
+}
+
+.solve-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    justify-content: flex-end;
 }
 
 /* 右侧等级评定 */
@@ -2233,7 +3267,7 @@ tr.grade-D .col-grade {
 
 /* ====== 主键盘 Casio 按键 ====== */
 .calc-keypad {
-    margin-top: 2px;
+    margin-top: auto;
     flex-shrink: 0;
     padding-bottom: 6px;
 }
@@ -2372,6 +3406,13 @@ tr.grade-D .col-grade {
     margin-bottom: 10px;
 }
 
+/* 求解模式：SPACE + = 双按钮 */
+.calc-space-row.has-eq {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
 .calc-btn.calc-space {
     width: 100%;
     border-radius: 5px;
@@ -2392,6 +3433,54 @@ tr.grade-D .col-grade {
     box-shadow:
         0 1px 0 #7db0d8,
         0 2px 4px rgba(0, 0, 0, .1);
+}
+
+/* 求解模式：= 输入键 */
+.calc-btn.calc-eq-key {
+    width: 100%;
+    border-radius: 5px;
+    background: linear-gradient(180deg, #5a6068 0%, #4a5054 40%, #3a3f42 100%);
+    color: #fff;
+    font-size: 1.1rem;
+    font-weight: 700;
+    padding: 14px 4px;
+    box-shadow:
+        0 4px 0 #6a7278,
+        0 6px 10px rgba(0, 0, 0, .2),
+        inset 0 1px 2px rgba(255, 255, 255, .12),
+        inset 0 -1px 3px rgba(0, 0, 0, .1);
+}
+
+.calc-btn.calc-eq-key:active {
+    transform: translateY(3px);
+    box-shadow:
+        0 1px 0 #6a7278,
+        0 2px 4px rgba(0, 0, 0, .15);
+}
+
+/* 求解模式：绿色求解按钮 */
+.calc-btn.calc-solve-btn {
+    width: 100%;
+    background: linear-gradient(180deg, #4caf8e 0%, #3d9e7a 45%, #2e8b68 100%);
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 700;
+    border-radius: 6px;
+    padding: 11px 4px;
+    letter-spacing: 2px;
+    box-shadow:
+        0 4px 0 #5dbf9f,
+        0 8px 16px rgba(0, 0, 0, .25),
+        inset 0 2px 3px rgba(255, 255, 255, .25),
+        inset 0 -2px 4px rgba(0, 0, 0, .1);
+}
+
+.calc-btn.calc-solve-btn:active {
+    transform: translateY(3px);
+    box-shadow:
+        0 1px 0 #5dbf9f,
+        0 3px 6px rgba(0, 0, 0, .2),
+        inset 0 1px 2px rgba(255, 255, 255, .2);
 }
 
 .calc-btn.calc-clear {
