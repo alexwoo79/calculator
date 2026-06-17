@@ -1154,6 +1154,7 @@ function prepareExpression(expr) {
     prepared = prepared.replace(/\bacos\b/g, "Math.acos");
     prepared = prepared.replace(/\batan\b/g, "Math.atan");
     prepared = prepared.replace(/\blog\b/g, "Math.log10");
+    prepared = prepared.replace(/\bpow\b/g, "Math.pow");
 
     // 第2轮：基础函数（sind/cosd/tand 等依赖它们，必须先替换）
     // 注意 \b 确保 sind 不会误匹配为 sin
@@ -1165,7 +1166,6 @@ function prepareExpression(expr) {
     prepared = prepared.replace(/\bsqrt\b/g, "Math.sqrt");
     prepared = prepared.replace(/\bln\b/g, "Math.log");
     prepared = prepared.replace(/\blg\b/g, "Math.log10");
-    prepared = prepared.replace(/\bpow\b/g, "Math.pow");
     prepared = prepared.replace(/\be\b(?![a-zA-Z])/g, "Math.E");
 
     // 第3轮：派生函数（语法糖，依赖第2轮已替换的基础函数）
@@ -1214,8 +1214,12 @@ function insertHint(hint) {
     if (hint.includes("(")) {
         // 带括号的函数，如 sin(x)、sqrt(x)、nCr(n,r) 等
         if (isNumber) {
-            // 将数字嵌入第一个参数位
-            inputText.value = hint.replace(/\([^)]*\)/, `(${trimmed})`);
+            // 多参数函数：只替换第一个参数，保留其余占位
+            if (hint.includes(",")) {
+                inputText.value = hint.replace(/\([^,)]+/, `(${trimmed}`);
+            } else {
+                inputText.value = hint.replace(/\([^)]*\)/, `(${trimmed})`);
+            }
         } else {
             inputText.value = trimmed ? trimmed + " " + hint : hint;
         }
@@ -1286,16 +1290,12 @@ function handleKeyboardSubmit() {
                 nums.push(evaluateSingle(token));
             }
         } else {
-            // 先尝试将整行作为一个表达式求值（如 "1 + 3"）
-            try {
-                nums.push(evaluateSingle(expr));
-            } catch {
-                // 整行求值失败，按空格分割逐个求值（如 "1 2 3"）
-                const tokens = expr.split(/\s+/);
-                for (const token of tokens) {
-                    if (!token) continue;
-                    nums.push(evaluateSingle(token));
-                }
+            // 直接求值整行表达式
+            const val = evaluateSingle(expr);
+            if (val !== undefined && isFinite(val)) {
+                nums.push(val);
+            } else {
+                throw new Error("请输入正确的表达式");
             }
         }
         if (nums.length === 0) {
