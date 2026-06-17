@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
 
 const inputText = ref("");
 const numbers = ref([]);
@@ -28,40 +28,30 @@ const calcMode = ref('standard');  // 'standard' | 'solve'
 const useDegrees = ref(false);     // false=弧度, true=角度
 const useInverse = ref(false);     // false=正函数, true=反函数
 
-// ===== LCD 拖拽滚动 =====
+// ===== LCD 动态字体大小 =====
 const outputRow = ref(null);
-let dragStartX = 0;
-let dragScrollLeft = 0;
-let isDragging = false;
+const outputValueRef = ref(null);
+const outputFontSize = ref(20);
+const MIN_FONT_SIZE = 10;
+const MAX_FONT_SIZE = 20;
 
-function startDragScroll(e) {
-    const el = outputRow.value;
-    if (!el || el.scrollWidth <= el.clientWidth) return;
-    isDragging = true;
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    dragStartX = clientX;
-    dragScrollLeft = el.scrollLeft;
-    el.style.cursor = 'grabbing';
-    el.style.userSelect = 'none';
-}
-
-function dragScroll(e) {
-    if (!isDragging) return;
-    const el = outputRow.value;
+function adjustFontSize() {
+    const el = outputValueRef.value;
     if (!el) return;
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const dx = clientX - dragStartX;
-    el.scrollLeft = dragScrollLeft - dx;
-}
-
-function stopDragScroll() {
-    if (!isDragging) return;
-    isDragging = false;
-    const el = outputRow.value;
-    if (el) {
-        el.style.cursor = '';
-        el.style.userSelect = '';
-    }
+    const parent = outputRow.value;
+    if (!parent) return;
+    // 等待 v-show 生效后再测量
+    requestAnimationFrame(() => {
+        const maxWidth = parent.clientWidth;
+        if (maxWidth <= 0) return;
+        el.style.fontSize = MAX_FONT_SIZE + 'px';
+        let size = MAX_FONT_SIZE;
+        while (size > MIN_FONT_SIZE && el.scrollWidth > maxWidth) {
+            size -= 1;
+            el.style.fontSize = size + 'px';
+        }
+        outputFontSize.value = size;
+    });
 }
 
 // ===== 全局 tooltip（绕过 overflow:hidden 裁剪）=====
@@ -492,6 +482,19 @@ const previewResult = computed(() => {
     } catch {
         return null;
     }
+});
+
+// ===== 动态字号：监听结果变化 =====
+watch([displayResult, previewResult], () => {
+    adjustFontSize();
+});
+
+// 窗口大小变化时重新调整
+onMounted(() => {
+    window.addEventListener('resize', adjustFontSize);
+});
+onUnmounted(() => {
+    window.removeEventListener('resize', adjustFontSize);
 });
 
 // 阶乘
@@ -1368,11 +1371,9 @@ function formatNum(n) {
                             @keydown.space.prevent="inputText += ' '" @keyup.enter="handleKeyboardSubmit" />
                     </div>
                     <div class="screen-output">
-                        <div class="output-row" ref="outputRow"
-                            @mousedown="startDragScroll" @mousemove="dragScroll" @mouseup="stopDragScroll" @mouseleave="stopDragScroll"
-                            @touchstart="startDragScroll" @touchmove="dragScroll" @touchend="stopDragScroll">
-                            <span v-show="displayResult" class="output-value">{{ displayResult }}<span v-if="resultUnit"
-                                    class="output-unit"> {{ resultUnit }}</span></span>
+                        <div class="output-row" ref="outputRow">
+                            <span v-show="displayResult" ref="outputValueRef" class="output-value" :style="{ fontSize: outputFontSize + 'px' }">{{ displayResult }}<span v-if="resultUnit"
+                                    class="output-unit" :style="{ fontSize: Math.max(outputFontSize * 0.7, 9) + 'px' }"> {{ resultUnit }}</span></span>
                             <span v-show="!displayResult && previewResult" class="output-value dim">{{
                                 previewResult?.value || '\u00A0' }}</span>
                             <span v-show="displayResult && paceText" class="output-pace" @click="showPace = !showPace"
@@ -1766,34 +1767,23 @@ function formatNum(n) {
     align-items: baseline;
     justify-content: flex-end;
     gap: 8px;
-    overflow-x: auto;
-    overflow-y: hidden;
     min-width: 0;
-    cursor: grab;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: thin;
-    scrollbar-color: transparent transparent;
+    overflow: hidden;
 }
 
-.output-row::-webkit-scrollbar {
-    height: 3px;
-}
-
-.output-row::-webkit-scrollbar-thumb {
-    background: #c0c4c8;
-    border-radius: 3px;
-}
-
-.output-row::-webkit-scrollbar-track {
-    background: transparent;
+/* 修复 flex-end + overflow 导致左侧内容无法滚动的问题 */
+.output-row::before {
+    content: '';
+    flex: 1 0 0;
+    min-width: 0;
 }
 
 .output-value {
-    font-size: 20px;
     font-weight: 800;
     color: #111;
     white-space: nowrap;
     flex-shrink: 0;
+    line-height: 1.2;
 }
 
 .output-value.dim {
