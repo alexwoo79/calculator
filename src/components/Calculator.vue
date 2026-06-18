@@ -1,46 +1,54 @@
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
+import { solveEquation as solveEq } from "../utils/solver";
+import { factorial, ncr, npr, prepareExpression, evaluateSingle, formatNum } from "../utils/evaluate";
+import type { HistoryItem } from "../types";
+
+// —— 内部类型 ——
+interface TooltipState { show: boolean; text: string; x: number; y: number }
+interface StatsResult { count: number; sum: number; max: number; min: number; avg: number; median: number; stddev: number; range: number }
+interface RankedItem { idx: number; raw: number; rank: number; pct: number }
+interface GradedItem extends RankedItem { grade: string }
 
 const inputText = ref("");
-const numbers = ref([]);
+const numbers = ref<number[]>([]);
 const errorMsg = ref("");
-const history = ref([]);
+const history = ref<HistoryItem[]>([]);
 const copiedIdx = ref(-1);
 const quickPasteText = ref("");
-const displayResult = ref(null);
-const lastInput = ref("");       // 上一次计算的输入
-const lastResultValue = ref(null); // 上一次计算结果（数值，用于连算）
+const displayResult = ref<string | null>(null);
+const lastInput = ref("");
+const lastResultValue = ref<number | null>(null);
 const aBound = ref(75);
 const bBound = ref(50);
 const cBound = ref(25);
 const showGrade = ref(false);
-const gradeSortKey = ref("rank");   // 默认按排名升序
+const gradeSortKey = ref<"rank" | "idx" | "raw" | "pct" | "grade">("rank");
 const gradeSortAsc = ref(true);
 const showTouchPad = ref(true);
-const showCalcPad = ref(true); // 显示计算器按键面板
+const showCalcPad = ref(true);
 const showHints = ref(false);
-const showStats = ref(false);  // 是否展示统计面板
-const showPace = ref(true);    // 是否显示配速转换
-const paceHints = new Set(['km', 'Hour', 'Min', 'Second']);
+const showStats = ref(false);
+const showPace = ref(true);
+const paceHints: Set<string> = new Set(['km', 'Hour', 'Min', 'Second']);
 
 // ===== 功能模式 =====
-const calcMode = ref('standard');  // 'standard' | 'solve'
-const useDegrees = ref(false);     // false=弧度, true=角度
-const useInverse = ref(false);     // false=正函数, true=反函数
+const calcMode = ref<'standard' | 'solve'>('standard');
+const useDegrees = ref(false);
+const useInverse = ref(false);
 
 // ===== LCD 动态字体大小 =====
-const outputRow = ref(null);
-const outputValueRef = ref(null);
+const outputRow = ref<HTMLElement | null>(null);
+const outputValueRef = ref<HTMLElement | null>(null);
 const outputFontSize = ref(20);
 const MIN_FONT_SIZE = 10;
 const MAX_FONT_SIZE = 20;
 
-function adjustFontSize() {
+function adjustFontSize(): void {
     const el = outputValueRef.value;
     if (!el) return;
     const parent = outputRow.value;
     if (!parent) return;
-    // 等待 v-show 生效后再测量
     requestAnimationFrame(() => {
         const maxWidth = parent.clientWidth;
         if (maxWidth <= 0) return;
@@ -54,13 +62,14 @@ function adjustFontSize() {
     });
 }
 
-// ===== 全局 tooltip（绕过 overflow:hidden 裁剪）=====
-const tooltip = ref({ show: false, text: '', x: 0, y: 0 });
-function showTooltip(e, text) {
-    const rect = e.target.getBoundingClientRect();
+// ===== 全局 tooltip =====
+const tooltip = ref<TooltipState>({ show: false, text: '', x: 0, y: 0 });
+function showTooltip(e: MouseEvent, text: string): void {
+    const target = e.target as HTMLElement;
+    const rect = target.getBoundingClientRect();
     tooltip.value = { show: true, text, x: rect.left + rect.width / 2, y: rect.bottom + 8 };
 }
-function hideTooltip() {
+function hideTooltip(): void {
     tooltip.value.show = false;
 }
 
@@ -89,18 +98,17 @@ const paceText = computed(() => {
 const resultUnit = computed(() => {
     if (!displayResult.value || numbers.value.length !== 1) return '';
     const { hasTime, hasDist, isSpeed } = paceContext.value;
-    if (isSpeed) return 'km/h';                              // 速度
-    if (hasTime && !hasDist) return 'h';                     // 纯时间
-    if (hasDist && !hasTime) return 'km';                    // 纯距离
+    if (isSpeed) return 'km/h';
+    if (hasTime && !hasDist) return 'h';
+    if (hasDist && !hasTime) return 'km';
     return '';
 });
 
 // ===== 键盘按键反馈 =====
-const activeKey = ref(null); // 当前高亮的按键标识
-let audioCtx = null;
+const activeKey = ref<string | null>(null);
+let audioCtx: AudioContext | null = null;
 
-// 物理键盘 → 计算器按键映射
-const keyMap = {
+const keyMap: Record<string, string> = {
     '0': '0', '1': '1', '2': '2', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7', '8': '8', '9': '9',
     '.': '.', ',': '.',
     '/': '÷', '*': '×', '-': '−', '+': '+',
@@ -112,10 +120,11 @@ const keyMap = {
     '^': '^', '%': '%',
 };
 
-function playClick() {
+function playClick(): void {
     if (!audioCtx) {
-        try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch { return; }
+        try { audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)(); } catch { return; }
     }
+    if (!audioCtx) return;
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.connect(gain);
@@ -129,10 +138,9 @@ function playClick() {
     osc.stop(audioCtx.currentTime + 0.08);
 }
 
-function onKeyDown(e) {
+function onKeyDown(e: KeyboardEvent): void {
     const isInputFocused = document.activeElement?.tagName === 'INPUT';
 
-    // 左右方向键切换面板（输入框聚焦时不拦截）
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         if (!isInputFocused) {
             e.preventDefault();
@@ -144,10 +152,9 @@ function onKeyDown(e) {
     const mapped = keyMap[e.key];
     if (!mapped) return;
 
-    const input = document.activeElement;
-    const isOurInput = isInputFocused && input?.closest('.calc-screen');
+    const input = document.activeElement as HTMLInputElement | null;
+    const isOurInput = isInputFocused && !!input?.closest('.calc-screen');
 
-    // AC 全局处理
     if (mapped === 'AC') {
         e.preventDefault();
         activeKey.value = mapped;
@@ -156,18 +163,16 @@ function onKeyDown(e) {
         return;
     }
 
-    // 退格：在输入框内用光标位置精确删除
     if (mapped === '⌫') {
         e.preventDefault();
         activeKey.value = mapped;
         playClick();
-        if (isOurInput && input.selectionStart !== undefined) {
+        if (isOurInput && input && input.selectionStart !== null) {
             const pos = input.selectionStart;
-            if (pos > 0) {
+            if (pos !== null && pos > 0) {
                 const before = inputText.value.slice(0, pos - 1);
                 const after = inputText.value.slice(pos);
                 inputText.value = before + after;
-                // 恢复光标位置
                 nextTick(() => {
                     input.setSelectionRange(pos - 1, pos - 1);
                 });
@@ -178,7 +183,6 @@ function onKeyDown(e) {
         return;
     }
 
-    // SPACE
     if (mapped === 'Space') {
         e.preventDefault();
         activeKey.value = mapped;
@@ -187,7 +191,6 @@ function onKeyDown(e) {
         return;
     }
 
-    // = 键
     if (mapped === '=') {
         e.preventDefault();
         activeKey.value = mapped;
@@ -200,22 +203,19 @@ function onKeyDown(e) {
         return;
     }
 
-    // 输入框聚焦时，普通字符由浏览器自然输入（避免双重输入）
     if (isOurInput) {
         activeKey.value = mapped;
         playClick();
-        // 只阻止空格（已在上面处理），其余字符交给浏览器
         return;
     }
 
-    // 输入框未聚焦：手动插入（模拟计算器键盘输入）
     e.preventDefault();
     activeKey.value = mapped;
     playClick();
     inputText.value += mapped === '÷' ? '/' : mapped === '×' ? '*' : mapped === '−' ? '-' : mapped;
 }
 
-function onKeyUp(e) {
+function onKeyUp(e: KeyboardEvent): void {
     const mapped = keyMap[e.key];
     if (mapped && activeKey.value === mapped) {
         activeKey.value = null;
@@ -232,27 +232,28 @@ onUnmounted(() => {
     window.removeEventListener('keyup', onKeyUp);
 });
 
-// 计算器按键处理
-const calcKeys = [
-    // 数字行
+// 计算器按键布局
+const calcKeys: string[][] = [
     ['7', '8', '9', '÷'],
     ['4', '5', '6', '×'],
     ['1', '2', '3', '−'],
     ['0', '.', '⌫', '+'],
     ['(', ')', '^', '%'],
 ];
-const calcFuncKeys = [];
+const calcFuncKeys: string[] = [];
 
-function calcKeyTap(key) {
+function calcKeyTap(key: string): void {
     playClick();
     if (key === '⌫') {
-        const input = document.querySelector('.screen-input-field');
-        if (input && input.selectionStart !== undefined && input.selectionStart > 0) {
+        const input = document.querySelector('.screen-input-field') as HTMLInputElement | null;
+        if (input && input.selectionStart !== null && input.selectionStart > 0) {
             const pos = input.selectionStart;
-            const before = inputText.value.slice(0, pos - 1);
-            const after = inputText.value.slice(pos);
-            inputText.value = before + after;
-            nextTick(() => input.setSelectionRange(pos - 1, pos - 1));
+            if (pos !== null) {
+                const before = inputText.value.slice(0, pos - 1);
+                const after = inputText.value.slice(pos);
+                inputText.value = before + after;
+                nextTick(() => input.setSelectionRange(pos - 1, pos - 1));
+            }
         } else {
             inputText.value = inputText.value.slice(0, -1);
         }
@@ -269,9 +270,9 @@ function calcKeyTap(key) {
     }
 }
 
-function calcFuncTap(fn) { }
+function calcFuncTap(_fn: string): void {}
 
-function calcClear() {
+function calcClear(): void {
     playClick();
     inputText.value = '';
     errorMsg.value = '';
@@ -282,27 +283,21 @@ function calcClear() {
 }
 
 // 支持的数学函数提示
-const functionHints = [
-    // 三角函数
+const functionHints: string[] = [
     "sin(x)", "cos(x)", "tan(x)",
     "asin(x)", "acos(x)", "atan(x)",
     "sind(x)", "cosd(x)", "tand(x)",
     "sinh(x)", "cosh(x)", "tanh(x)",
-    // 幂指对
     "sqrt(x)", "cbrt(x)", "ln(x)", "lg(x)", "log(x)", "log2(x)",
     "pow(x,y)", "hypot(x,y)",
-    // 取整/符号
     "abs(x)", "sign(x)", "floor(x)", "ceil(x)", "round(x)",
-    // 组合/角度/进制
     "mod(x,y)", "deg(x)", "rad(x)",
     "nCr(n,r)", "nPr(n,r)", "x!", "x%",
     "hex2dec(x)", "bin2dec(x)",
-    // 常量/字面量
     "pi", "e", "1/x", "x^2", "x^3", "km", "Hour", "Min", "Second",
 ];
 
-// 每个预设的 hover 提示
-const hintTooltips = {
+const hintTooltips: Record<string, string> = {
     "sin(x)": "正弦", "cos(x)": "余弦", "tan(x)": "正切",
     "asin(x)": "反正弦", "acos(x)": "反余弦", "atan(x)": "反正切",
     "sind(x)": "正弦(度)", "cosd(x)": "余弦(度)", "tand(x)": "正切(度)",
@@ -321,7 +316,7 @@ const hintTooltips = {
 };
 
 // ===== 动态预设函数（根据模式切换）=====
-const standardHintsRad = [
+const standardHintsRad: string[] = [
     "sin(x)", "cos(x)", "tan(x)", "sqrt(x)", "cbrt(x)",
     "ln(x)", "lg(x)", "pow(x,y)", "abs(x)", "sign(x)",
     "floor(x)", "ceil(x)", "round(x)", "mod(x,y)",
@@ -330,7 +325,7 @@ const standardHintsRad = [
     "x%", "hex2dec(x)", "bin2dec(x)", "pi", "e",
     "1/x", "x^2", "x^3", "km", "Hour", "Min", "Second",
 ];
-const standardHintsDeg = [
+const standardHintsDeg: string[] = [
     "sind(x)", "cosd(x)", "tand(x)", "sqrt(x)", "cbrt(x)",
     "ln(x)", "lg(x)", "pow(x,y)", "abs(x)", "sign(x)",
     "floor(x)", "ceil(x)", "round(x)", "mod(x,y)",
@@ -339,7 +334,7 @@ const standardHintsDeg = [
     "x%", "hex2dec(x)", "bin2dec(x)", "pi", "e",
     "1/x", "x^2", "x^3", "km", "Hour", "Min", "Second",
 ];
-const standardHintsRadInv = [
+const standardHintsRadInv: string[] = [
     "asin(x)", "acos(x)", "atan(x)", "sqrt(x)", "cbrt(x)",
     "ln(x)", "lg(x)", "pow(x,y)", "abs(x)", "sign(x)",
     "floor(x)", "ceil(x)", "round(x)", "mod(x,y)",
@@ -348,7 +343,7 @@ const standardHintsRadInv = [
     "x%", "hex2dec(x)", "bin2dec(x)", "pi", "e",
     "1/x", "x^2", "x^3", "km", "Hour", "Min", "Second",
 ];
-const standardHintsDegInv = [
+const standardHintsDegInv: string[] = [
     "asin(x)", "acos(x)", "atan(x)", "sqrt(x)", "cbrt(x)",
     "ln(x)", "lg(x)", "pow(x,y)", "abs(x)", "sign(x)",
     "floor(x)", "ceil(x)", "round(x)", "mod(x,y)",
@@ -358,33 +353,32 @@ const standardHintsDegInv = [
     "km", "Hour", "Min", "Second",
 ];
 
-const solveHints = [
+const solveHints: string[] = [
     "ax^2+bx+c=0", "ax+b=0", "x^2+px+q=0", "ax^2+bx=0",
     "ax^3+bx^2+cx+d=0", "a/x+b=c", "sqrt(ax+b)=c",
     "a^x=b", "ln(x)=a", "abs(x)=a",
     "sin(x)=a", "cos(x)=a", "tan(x)=a",
 ];
 
-const HINT_ROW_COUNT = 6; // 固定行数，保持 UI 高度一致
+const HINT_ROW_COUNT = 6;
 
 const displayHints = computed(() => {
     const cols = calcMode.value === 'solve' ? 4 : 5;
     const total = HINT_ROW_COUNT * cols;
-    let hints;
+    let hints: string[];
     if (calcMode.value === 'solve') hints = solveHints;
     else if (useDegrees.value) {
         hints = useInverse.value ? standardHintsDegInv : standardHintsDeg;
     } else {
         hints = useInverse.value ? standardHintsRadInv : standardHintsRad;
     }
-    // 补齐到固定数量，保持预设功能区高度不变
-    const padded = [...hints];
+    const padded: (string | null)[] = [...hints];
     while (padded.length < total) padded.push(null);
     return padded;
 });
 
 // 计算结果统计
-const stats = computed(() => {
+const stats = computed((): StatsResult | null => {
     if (numbers.value.length === 0) return null;
     const sorted = [...numbers.value].sort((a, b) => a - b);
     const sum = sorted.reduce((a, b) => a + b, 0);
@@ -404,13 +398,13 @@ const stats = computed(() => {
     };
 });
 
-// 排名表格数据（降序排列，1=最大，含分位%）
-const rankedData = computed(() => {
+const rankedData = computed((): RankedItem[] => {
     if (numbers.value.length === 0) return [];
     const N = numbers.value.length;
     const indexed = numbers.value.map((v, i) => ({ idx: i + 1, raw: v }));
     const sorted = [...indexed].sort((a, b) => b.raw - a.raw);
-    let r = 0, prev = NaN;
+    let r = 0;
+    let prev = NaN;
     return sorted.map((item) => {
         if (item.raw !== prev) { r++; prev = item.raw; }
         const pct = N > 1 ? ((N - r) / (N - 1)) * 100 : 100;
@@ -418,10 +412,9 @@ const rankedData = computed(() => {
     });
 });
 
-// 等级评定
-const gradedData = computed(() => {
+const gradedData = computed((): GradedItem[] => {
     return rankedData.value.map(r => {
-        let grade;
+        let grade: string;
         if (r.pct >= aBound.value) grade = 'A';
         else if (r.pct >= bBound.value) grade = 'B';
         else if (r.pct >= cBound.value) grade = 'C';
@@ -430,22 +423,21 @@ const gradedData = computed(() => {
     });
 });
 
-// 各等级计数
 const gradeCounts = computed(() => {
-    const counts = { A: 0, B: 0, C: 0, D: 0 };
+    const counts: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
     gradedData.value.forEach(r => counts[r.grade]++);
     return counts;
 });
 
-// 排序后的等级评定数据
 const sortedGradeData = computed(() => {
     const data = [...gradedData.value];
     const key = gradeSortKey.value;
     const asc = gradeSortAsc.value;
     data.sort((a, b) => {
-        let va, vb;
+        let va: number | string;
+        let vb: number | string;
         if (key === "grade") {
-            const order = { A: 1, B: 2, C: 3, D: 4 };
+            const order: Record<string, number> = { A: 1, B: 2, C: 3, D: 4 };
             va = order[a.grade];
             vb = order[b.grade];
         } else {
@@ -459,7 +451,7 @@ const sortedGradeData = computed(() => {
     return data;
 });
 
-function toggleGradeSort(key) {
+function toggleGradeSort(key: "rank" | "idx" | "raw" | "pct" | "grade"): void {
     if (gradeSortKey.value === key) {
         gradeSortAsc.value = !gradeSortAsc.value;
     } else {
@@ -468,20 +460,17 @@ function toggleGradeSort(key) {
     }
 }
 
-function sortArrowFor(key) {
+function sortArrowFor(key: string): string {
     if (gradeSortKey.value !== key) return '';
     return gradeSortAsc.value ? ' \u25B2' : ' \u25BC';
 }
 
 // 实时预览
-const previewResult = computed(() => {
+const previewResult = computed((): { value: string } | null => {
     const input = inputText.value.trim();
     if (!input) return null;
-    try {
-        return { value: formatNum(evaluateSingle(input)) };
-    } catch {
-        return null;
-    }
+    const val = evaluateSingle(input);
+    return isNaN(val) ? null : { value: formatNum(val) };
 });
 
 // ===== 动态字号：监听结果变化 =====
@@ -489,7 +478,6 @@ watch([displayResult, previewResult], () => {
     adjustFontSize();
 });
 
-// 窗口大小变化时重新调整
 onMounted(() => {
     window.addEventListener('resize', adjustFontSize);
 });
@@ -497,583 +485,36 @@ onUnmounted(() => {
     window.removeEventListener('resize', adjustFontSize);
 });
 
-// 阶乘
-function factorial(n) {
-    if (n < 0) throw new Error("阶乘不支持负数");
-    if (!Number.isInteger(n)) throw new Error("阶乘仅支持整数");
-    if (n > 170) throw new Error("阶乘数值过大");
-    let r = 1;
-    for (let i = 2; i <= n; i++) r *= i;
-    return r;
-}
-
-// 组合数 nCr
-function ncr(n, r) {
-    if (r < 0 || r > n) throw new Error("nCr 参数无效");
-    return Math.round(factorial(n) / (factorial(r) * factorial(n - r)));
-}
-
-// 排列数 nPr
-function npr(n, r) {
-    if (r < 0 || r > n) throw new Error("nPr 参数无效");
-    return Math.round(factorial(n) / factorial(n - r));
-}
-
 // ===== 方程求解（增强版：支持一次/二次/三次，含解题步骤）=====
-const solveSteps = ref([]);     // 解题步骤数组
-const solveResult = ref(null);  // 详细求解结果
+const solveSteps = ref<any[]>([]);
+const solveResult = ref<any>(null);
 
-// 解析多项式表达式，提取各项系数 [c0, c1, c2, c3] 对应常数项、x、x²、x³
-function parsePolynomial(expr) {
-    let s = expr.replace(/\s/g, '').toLowerCase();
-    // 统一幂符号
-    s = s.replace(/\^/g, '^');
-    // 处理隐式乘法: 2x → 2*x, x2 → x*2, 3x^2 → 3*x^2, (x+1)(x+2) → (x+1)*(x+2)
-    s = s.replace(/(\d)(x)/g, '$1*x');
-    s = s.replace(/(x)(\d)/g, '$1*$2');
-    s = s.replace(/\)\(/g, ')*(');
-    s = s.replace(/(\d)\(/g, '$1*(');
-    s = s.replace(/\)(\d)/g, ')*$1');
-
-    // 提取系数：用 x^3, x^2, x, 常数项采样
-    const coeffs = [0, 0, 0, 0]; // [c, b, a, a3] for ax^3+bx^2+cx+d
-
-    // 用数值采样法提取各次幂系数（精确解析多项式）
-    function evalAt(val) {
-        const substituted = s.replace(/x/g, `(${val})`).replace(/\^/g, '**');
-        try {
-            return new Function(`"use strict"; return (${substituted});`)();
-        } catch { return NaN; }
-    }
-
-    // 采样 4 个点解出 4 个系数 (假设最高次 ≤ 3)
-    const f0 = evalAt(0);          // f(0) = d
-    const f1 = evalAt(1);          // f(1) = a+b+c+d
-    const fm1 = evalAt(-1);        // f(-1) = -a+b-c+d (for cubic: -a3+a2-a1+a0)
-    const f2 = evalAt(2);          // f(2) = 8a3+4a2+2a1+a0
-
-    if ([f0, f1, fm1, f2].some(v => isNaN(v) || !isFinite(v))) {
-        throw new Error("表达式无法解析，请检查格式");
-    }
-
-    // 解线性方程组求系数
-    // f0 = d
-    // f1 = a3 + a2 + a1 + d
-    // fm1 = -a3 + a2 - a1 + d
-    // f2 = 8a3 + 4a2 + 2a1 + d
-    const d = f0;
-    const sum1 = f1 - d;       // a3 + a2 + a1
-    const sumM1 = fm1 - d;     // -a3 + a2 - a1
-    const sum2 = f2 - d;       // 8a3 + 4a2 + 2a1
-
-    const a2_plus_a0 = (sum1 + sumM1) / 2;  // a2
-    const a3_plus_a1 = (sum1 - sumM1) / 2;  // a3 + a1
-
-    // 8a3 + 4a2 + 2a1 = sum2
-    // a3 + a1 = a3_plus_a1 → a1 = a3_plus_a1 - a3
-    // 8a3 + 4*a2_plus_a0 + 2*(a3_plus_a1 - a3) = sum2
-    // 8a3 + 4*a2_plus_a0 + 2*a3_plus_a1 - 2a3 = sum2
-    // 6a3 = sum2 - 4*a2_plus_a0 - 2*a3_plus_a1
-    const a3 = (sum2 - 4 * a2_plus_a0 - 2 * a3_plus_a1) / 6;
-    const a1 = a3_plus_a1 - a3;
-
-    return {
-        a3, a2: a2_plus_a0, a1, a0: d,
-        // 返回 [常数项, x系数, x²系数, x³系数]
-        coeffs: [d, a1, a2_plus_a0, a3],
-    };
-}
-
-function solveEquation(equationStr) {
-    solveSteps.value = [];
-    solveResult.value = null;
-    const steps = [];
-
-    function done(result) {
-        solveSteps.value = steps;
-        solveResult.value = result;
-        return result;
-    }
-
-    let eq = equationStr.replace(/\s/g, '').toLowerCase();
-    const parts = eq.split('=');
-    if (parts.length !== 2) throw new Error("请输入正确的方程格式（含=）");
-
-    const left = parts[0] || '0';
-    const right = parts[1] || '0';
-
-    steps.push({ text: `原方程: ${left} = ${right}`, hl: false });
-
-    // ===== 非多项式方程检测 =====
-    // 直接分析原始左右两边（不做移项），匹配特定模式
-
-    // sqrt(ax+b) = c  或  sqrt(ax+b) = c
-    let m = left.match(/^sqrt\((.+)\)$/) || left.match(/^√\((.+)\)$/);
-    if (m) {
-        const inner = m[1];
-        const result = solveRadical(inner, right, steps);
-        if (result) {
-            return done(result);
-        }
-    }
-
-    // a/x + b = c  (左式含 /x)
-    m = left.match(/^(.+)\/x\s*([+-].+)?$/);
-    if (m && !left.includes('^') && !left.includes('sqrt') && !left.includes('sin') && !left.includes('cos') && !left.includes('tan') && !left.includes('ln') && !left.includes('abs')) {
-        const result = solveRational(left, right, steps);
-        if (result) {
-            return done(result);
-        }
-    }
-
-    // a^x = b  (指数方程)
-    if (/^[\d.]+?\^x$/.test(left) && /^[\d.+-]+$/.test(right)) {
-        const result = solveExponential(left, right, steps);
-        if (result) {
-            return done(result);
-        }
-    }
-
-    // ln(x) = a  (对数方程)
-    if (/^ln\(x\)$/.test(left) && /^[\d.+-]+$/.test(right)) {
-        const result = solveLogarithmic(right, steps);
-        if (result) {
-            return done(result);
-        }
-    }
-
-    // |x| = a 或 abs(x) = a (绝对值方程)
-    m = left.match(/^abs\((.+)\)$/) || left.match(/^\|(.+)\|$/);
-    if (m && /^[\d.+-]+$/.test(right)) {
-        const result = solveAbsolute(m[1], right, steps);
-        if (result) {
-            return done(result);
-        }
-    }
-
-    // sin(x)=a, cos(x)=a, tan(x)=a (三角方程)
-    m = left.match(/^(sin|cos|tan)\((.+)\)$/);
-    if (m && /^[\d.+-]+$/.test(right)) {
-        const result = solveTrig(m[1], m[2], right, steps);
-        if (result) {
-            return done(result);
-        }
-    }
-
-    // ===== 多项式方程求解 =====
-    // 移项：左 - 右 = 0
-    const combinedExpr = `(${left})-(${right})`;
-    steps.push({ text: `移项: ${combinedExpr} = 0`, hl: false });
-
-    const poly = parsePolynomial(combinedExpr);
-    const [c, b, a, a3] = poly.coeffs;
-
-    // 确定有效次数（从高到低）
-    const eps = 1e-10;
-    let degree = 0;
-    if (Math.abs(a3) > eps) degree = 3;
-    else if (Math.abs(a) > eps) degree = 2;
-    else if (Math.abs(b) > eps) degree = 1;
-
-    // 显示化简后的方程
-    const simplified = fmtPoly([a3, a, b, c], ['x^3', 'x^2', 'x', '']);
-    steps.push({ text: `化简: ${simplified} = 0`, hl: true });
-
-    let result;
-
-    if (degree === 3) {
-        result = solveCubic(a3, a, b, c, steps);
-    } else if (degree === 2) {
-        result = solveQuadratic(a, b, c, steps);
-    } else if (degree === 1) {
-        result = solveLinear(b, c, steps);
-    } else {
-        if (Math.abs(c) < eps) {
-            result = { type: 'identity', solutions: [], display: '恒等式，任意 x 均成立' };
-            steps.push({ text: '0 = 0，恒等式，任意 x 均成立', hl: false });
-        } else {
-            result = { type: 'contradiction', solutions: [], display: '矛盾方程，无解' };
-            steps.push({ text: `${formatNum(c)} = 0，矛盾，无解`, hl: false });
-        }
-    }
-
-    return done(result);
-}
-
-// ===== 非多项式方程求解器 =====
-
-function solveRadical(inner, right, steps) {
-    // sqrt(ax+b) = c  →  ax+b = c²  →  x = (c²-b)/a
-    // inner 格式: ax+b 或 x+b 或 ax
-    steps.push({ text: `根式方程: √(${inner}) = ${right}`, hl: true });
-    const c = safeEvalSimple(right);
-    if (isNaN(c) || c < 0) throw new Error("根式方程右边必须 ≥ 0");
-    const c2 = c * c;
-    steps.push({ text: `两边平方: ${inner} = ${right}² = ${formatNum(c2)}`, hl: false });
-
-    const poly = parsePolynomial(`(${inner})-(${formatNum(c2)})`);
-    const [d, b, a] = poly.coeffs;
-
-    if (Math.abs(a) > 1e-10) {
-        steps.push({ text: `化为: ${formatCoeff2(a)}x ${formatCoeff2(b)} = 0`, hl: false });
-        const x = -b / a;
-        steps.push({ text: `x = ${formatNum(-b)} / ${formatNum(a)} = ${formatNum(x)}`, hl: false });
-        steps.push({ text: `✓ x = ${formatNum(x)}`, hl: true });
-        return { type: 'radical', degree: 1, solutions: [formatNum(x)], display: `x = ${formatNum(x)}` };
-    } else if (Math.abs(b) > 1e-10) {
-        const x = -d / b;
-        steps.push({ text: `x = ${formatNum(-d)} / ${formatNum(b)} = ${formatNum(x)}`, hl: false });
-        steps.push({ text: `✓ x = ${formatNum(x)}`, hl: true });
-        return { type: 'radical', degree: 1, solutions: [formatNum(x)], display: `x = ${formatNum(x)}` };
-    }
-    throw new Error("根式方程无法求解");
-}
-
-function solveRational(left, right, steps) {
-    // a/x + b = c  →  a/x = c-b  →  x = a/(c-b)
-    steps.push({ text: `分式方程: ${left} = ${right}`, hl: true });
-    const c = safeEvalSimple(right.replace(/\^/g, '**'));
-    if (isNaN(c)) throw new Error("右边无法计算");
-
-    // 解析 a/x + b 形式
-    const parts = left.split(/([+-])/);
-    let a = 1, b = 0, sign = 1;
-    for (let i = 0; i < parts.length; i++) {
-        const p = parts[i].trim();
-        if (p === '+') sign = 1;
-        else if (p === '-') sign = -1;
-        else if (p.includes('/x')) {
-            const num = p.replace('/x', '').trim();
-            a = sign * (num === '' || num === '+' ? 1 : num === '-' ? -1 : safeEvalSimple(num));
-        } else if (p && !p.includes('/')) {
-            b += sign * safeEvalSimple(p);
-        }
-    }
-    if (isNaN(a) || isNaN(b)) throw new Error("分式方程格式无法解析");
-
-    steps.push({ text: `a = ${formatNum(a)}, b = ${formatNum(b)}, c = ${formatNum(c)}`, hl: false });
-    const denom = c - b;
-    if (Math.abs(denom) < 1e-10) throw new Error("分母为零，无解");
-    const x = a / denom;
-    steps.push({ text: `${formatNum(a)}/x = ${formatNum(c)} − ${formatNum(b)} = ${formatNum(denom)}`, hl: false });
-    steps.push({ text: `x = ${formatNum(a)} / ${formatNum(denom)} = ${formatNum(x)}`, hl: false });
-    steps.push({ text: `✓ x = ${formatNum(x)}`, hl: true });
-    return { type: 'rational', degree: 1, solutions: [formatNum(x)], display: `x = ${formatNum(x)}` };
-}
-
-function solveExponential(left, right, steps) {
-    // a^x = b  →  x = ln(b)/ln(a)
-    const a = parseFloat(left.replace('^x', ''));
-    const b = parseFloat(right);
-    if (a <= 0 || a === 1) throw new Error("指数底数必须 > 0 且 ≠ 1");
-    if (b <= 0) throw new Error("指数方程右边必须 > 0");
-    steps.push({ text: `指数方程: ${a}^x = ${b}`, hl: true });
-    steps.push({ text: `取自然对数: x·ln(${a}) = ln(${b})`, hl: false });
-    const x = Math.log(b) / Math.log(a);
-    steps.push({ text: `x = ln(${b}) / ln(${a}) = ${formatNum(x)}`, hl: false });
-    steps.push({ text: `✓ x = ${formatNum(x)}`, hl: true });
-    return { type: 'exponential', degree: 0, solutions: [formatNum(x)], display: `x = ${formatNum(x)}` };
-}
-
-function solveLogarithmic(right, steps) {
-    // ln(x) = a  →  x = e^a
-    const a = safeEvalSimple(right);
-    steps.push({ text: `对数方程: ln(x) = ${formatNum(a)}`, hl: true });
-    const x = Math.exp(a);
-    steps.push({ text: `x = e^${formatNum(a)} = ${formatNum(x)}`, hl: false });
-    steps.push({ text: `✓ x = ${formatNum(x)}`, hl: true });
-    return { type: 'logarithmic', degree: 0, solutions: [formatNum(x)], display: `x = ${formatNum(x)}` };
-}
-
-function solveAbsolute(inner, right, steps) {
-    // |x| = a  →  x = ±a
-    const a = safeEvalSimple(right);
-    if (a < 0) {
-        steps.push({ text: `|${inner}| = ${formatNum(a)} < 0，无解`, hl: true });
-        return { type: 'absolute', degree: 0, solutions: [], display: '无解' };
-    }
-    steps.push({ text: `绝对值方程: |${inner}| = ${formatNum(a)}`, hl: true });
-    if (Math.abs(a) < 1e-10) {
-        steps.push({ text: `✓ x = 0`, hl: true });
-        return { type: 'absolute', degree: 0, solutions: ['0'], display: 'x = 0' };
-    }
-    steps.push({ text: `✓ x₁ = ${formatNum(a)}`, hl: true });
-    steps.push({ text: `✓ x₂ = ${formatNum(-a)}`, hl: true });
-    return { type: 'absolute', degree: 0, solutions: [formatNum(a), formatNum(-a)], display: `x₁ = ${formatNum(a)}  |  x₂ = ${formatNum(-a)}` };
-}
-
-function solveTrig(func, inner, right, steps) {
-    const a = safeEvalSimple(right);
-    steps.push({ text: `三角方程: ${func}(${inner}) = ${formatNum(a)}`, hl: true });
-    if (Math.abs(a) > 1) throw new Error(`${func} 的值域为 [-1, 1]，${formatNum(a)} 超出范围`);
-
-    const useDeg = useDegrees.value;
-    const radVal = func === 'sin' ? Math.asin(a) : func === 'cos' ? Math.acos(a) : Math.atan(a);
-    const degVal = radVal * 180 / Math.PI;
-
-    if (func === 'sin') {
-        if (useDeg) {
-            steps.push({ text: `x₁ = arcsin(${formatNum(a)}) = ${formatNum(degVal)}°`, hl: false });
-            steps.push({ text: `✓ x₁ = ${formatNum(degVal)}°`, hl: true });
-            const x2 = 180 - degVal;
-            steps.push({ text: `x₂ = 180° − ${formatNum(degVal)}° = ${formatNum(x2)}°`, hl: false });
-            steps.push({ text: `✓ x₂ = ${formatNum(x2)}°`, hl: true });
-            return { type: 'trig', degree: 0, solutions: [formatNum(degVal) + '°', formatNum(x2) + '°'], display: `x₁ = ${formatNum(degVal)}°  |  x₂ = ${formatNum(x2)}°` };
-        }
-        steps.push({ text: `x₁ = arcsin(${formatNum(a)}) = ${formatNum(radVal)} rad`, hl: false });
-        const x2 = Math.PI - radVal;
-        steps.push({ text: `x₂ = π − ${formatNum(radVal)} = ${formatNum(x2)} rad`, hl: false });
-        steps.push({ text: `✓ x₁ = ${formatNum(radVal)} rad  |  x₂ = ${formatNum(x2)} rad`, hl: true });
-        return { type: 'trig', degree: 0, solutions: [formatNum(radVal) + ' rad', formatNum(x2) + ' rad'], display: `x₁ = ${formatNum(radVal)} rad  |  x₂ = ${formatNum(x2)} rad` };
-    } else if (func === 'cos') {
-        if (useDeg) {
-            steps.push({ text: `x₁ = arccos(${formatNum(a)}) = ${formatNum(degVal)}°`, hl: false });
-            steps.push({ text: `✓ x₁ = ${formatNum(degVal)}°`, hl: true });
-            const x2 = -degVal;
-            steps.push({ text: `x₂ = −${formatNum(degVal)}°`, hl: false });
-            steps.push({ text: `✓ x₂ = ${formatNum(x2)}°`, hl: true });
-            return { type: 'trig', degree: 0, solutions: [formatNum(degVal) + '°', formatNum(x2) + '°'], display: `x₁ = ${formatNum(degVal)}°  |  x₂ = ${formatNum(x2)}°` };
-        }
-        steps.push({ text: `x₁ = arccos(${formatNum(a)}) = ${formatNum(radVal)} rad`, hl: false });
-        const x2 = -radVal;
-        steps.push({ text: `✓ x₁ = ${formatNum(radVal)} rad  |  x₂ = ${formatNum(x2)} rad`, hl: true });
-        return { type: 'trig', degree: 0, solutions: [formatNum(radVal) + ' rad', formatNum(x2) + ' rad'], display: `x₁ = ${formatNum(radVal)} rad  |  x₂ = ${formatNum(x2)} rad` };
-    } else { // tan
-        if (useDeg) {
-            steps.push({ text: `x = arctan(${formatNum(a)}) = ${formatNum(degVal)}°`, hl: false });
-            steps.push({ text: `✓ x = ${formatNum(degVal)}° + k·180° (k∈Z)`, hl: true });
-            return { type: 'trig', degree: 0, solutions: [formatNum(degVal) + '°'], display: `x = ${formatNum(degVal)}°` };
-        }
-        steps.push({ text: `x = arctan(${formatNum(a)}) = ${formatNum(radVal)} rad`, hl: false });
-        steps.push({ text: `✓ x = ${formatNum(radVal)} rad + kπ (k∈Z)`, hl: true });
-        return { type: 'trig', degree: 0, solutions: [formatNum(radVal) + ' rad'], display: `x = ${formatNum(radVal)} rad` };
-    }
-}
-
-// 简单表达式求值（不使用数学函数库）
-function safeEvalSimple(expr) {
-    const s = String(expr).trim().replace(/\^/g, '**');
-    try {
-        return new Function(`"use strict"; return (${s});`)();
-    } catch {
-        return NaN;
-    }
-}
-
-function formatCoeff(v) {
-    if (Math.abs(v - 1) < 1e-10) return '1';
-    if (Math.abs(v + 1) < 1e-10) return '-1';
-    return formatNum(v);
-}
-
-function solveLinear(b, c, steps) {
-    const eqText = fmtPoly([b, c], ['x', '']);
-    steps.push({ text: `一次方程: ${eqText} = 0`, hl: true });
-    const x = -c / b;
-    steps.push({ text: `移项: ${formatCoeff2(b)}x = ${formatNum(-c)}`, hl: false });
-    steps.push({ text: `x = ${formatNum(-c)} ÷ ${formatNum(b)} = ${formatNum(x)}`, hl: false });
-    steps.push({ text: `✓ 解: x = ${formatNum(x)}`, hl: true });
-    return {
-        type: 'linear', b, c, degree: 1,
-        solutions: [formatNum(x)], display: `x = ${formatNum(x)}`,
-    };
-}
-
-// 格式化多项式: [a, b, c, d] → "ax^3 + bx^2 + cx + d"
-function fmtPoly(coeffs, vars = ['x^3', 'x^2', 'x', '']) {
-    const terms = [];
-    for (let i = 0; i < coeffs.length; i++) {
-        const v = coeffs[i];
-        if (Math.abs(v) < 1e-10) continue;
-        const sign = terms.length === 0 ? (v < 0 ? '-' : '') : (v >= 0 ? ' + ' : ' - ');
-        const absVal = Math.abs(v);
-        const varPart = vars[i] || '';
-        if (Math.abs(absVal - 1) < 1e-10 && varPart) {
-            terms.push(`${sign}${varPart}`);
-        } else {
-            terms.push(`${sign}${formatNum(absVal)}${varPart}`);
-        }
-    }
-    return terms.join('') || '0';
-}
-
-function solveQuadratic(a, b, c, steps) {
-    const eqText = fmtPoly([a, b, c], ['x^2', 'x', '']);
-    steps.push({ text: `二次方程: ${eqText} = 0`, hl: true });
-    steps.push({ text: `系数: a = ${formatNum(a)}, b = ${formatNum(b)}, c = ${formatNum(c)}`, hl: false });
-
-    const delta = b * b - 4 * a * c;
-    steps.push({ text: `判别式 Δ = b² − 4ac = ${formatNum(b)}² − 4×${formatNum(a)}×${formatNum(c)} = ${formatNum(delta)}`, hl: false });
-
-    if (delta < -1e-10) {
-        const realPart = -b / (2 * a);
-        const imagPart = Math.sqrt(-delta) / (2 * a);
-        steps.push({ text: `Δ < 0，有两个共轭复根`, hl: false });
-        steps.push({ text: `求根公式: x = (−b ± √Δ) / (2a) = (${formatNum(-b)} ± √${formatNum(-delta)}i) / ${formatNum(2 * a)}`, hl: false });
-        steps.push({ text: `实部 = −b/(2a) = ${formatNum(realPart)}`, hl: false });
-        steps.push({ text: `虚部 = √(−Δ)/(2a) = ${formatNum(imagPart)}`, hl: false });
-        const display = `x₁ = ${formatNum(realPart)} + ${formatNum(imagPart)}i\nx₂ = ${formatNum(realPart)} − ${formatNum(imagPart)}i`;
-        steps.push({ text: `✓ x₁ = ${formatNum(realPart)} + ${formatNum(imagPart)}i`, hl: true });
-        steps.push({ text: `✓ x₂ = ${formatNum(realPart)} − ${formatNum(imagPart)}i`, hl: true });
-        return {
-            type: 'quadratic', a, b, c, delta, degree: 2,
-            solutions: [`${formatNum(realPart)}+${formatNum(imagPart)}i`, `${formatNum(realPart)}-${formatNum(imagPart)}i`],
-            display,
-        };
-    } else if (Math.abs(delta) < 1e-10) {
-        const x = -b / (2 * a);
-        steps.push({ text: `Δ = 0，有一个重根`, hl: false });
-        steps.push({ text: `x = −b/(2a) = ${formatNum(-b)} / ${formatNum(2 * a)} = ${formatNum(x)}`, hl: false });
-        const display = `x = ${formatNum(x)} (重根)`;
-        steps.push({ text: `✓ ${display}`, hl: true });
-        return {
-            type: 'quadratic', a, b, c, delta: 0, degree: 2,
-            solutions: [formatNum(x)], display,
-        };
-    } else {
-        const sqrtDelta = Math.sqrt(delta);
-        const x1 = (-b + sqrtDelta) / (2 * a);
-        const x2 = (-b - sqrtDelta) / (2 * a);
-        steps.push({ text: `Δ > 0，有两个不等实根`, hl: false });
-        steps.push({ text: `√Δ = √${formatNum(delta)} = ${formatNum(sqrtDelta)}`, hl: false });
-        steps.push({ text: `x₁ = (−b + √Δ)/(2a) = (${formatNum(-b)} + ${formatNum(sqrtDelta)}) / ${formatNum(2 * a)} = ${formatNum(x1)}`, hl: false });
-        steps.push({ text: `x₂ = (−b − √Δ)/(2a) = (${formatNum(-b)} − ${formatNum(sqrtDelta)}) / ${formatNum(2 * a)} = ${formatNum(x2)}`, hl: false });
-        const display = `x₁ = ${formatNum(x1)}\nx₂ = ${formatNum(x2)}`;
-        steps.push({ text: `✓ x₁ = ${formatNum(x1)}`, hl: true });
-        steps.push({ text: `✓ x₂ = ${formatNum(x2)}`, hl: true });
-        return {
-            type: 'quadratic', a, b, c, delta, degree: 2,
-            solutions: [formatNum(x1), formatNum(x2)], display,
-        };
-    }
-}
-
-function solveCubic(a3, a2, a1, a0, steps) {
-    const eqText = fmtPoly([a3, a2, a1, a0], ['x^3', 'x^2', 'x', '']);
-    steps.push({ text: `三次方程: ${eqText} = 0`, hl: true });
-
-    // 化为标准形式 x³ + px² + qx + r = 0
-    const p = a2 / a3;
-    const q = a1 / a3;
-    const r = a0 / a3;
-    const stdEq = fmtPoly([1, p, q, r], ['x^3', 'x^2', 'x', '']);
-    steps.push({ text: `标准化 (除以${formatNum(a3)}): ${stdEq} = 0`, hl: false });
-
-    // 用 Cardano 方法
-    // 先消去二次项: 令 x = y - p/3, 得 y³ + Py + Q = 0
-    const P = q - (p * p) / 3;
-    const Q = r - (p * q) / 3 + (2 * p * p * p) / 27;
-    steps.push({ text: `令 x = y - p/3, 消去二次项:`, hl: false });
-    steps.push({ text: `P = q - p²/3 = ${formatNum(P)}`, hl: false });
-    steps.push({ text: `Q = r - pq/3 + 2p³/27 = ${formatNum(Q)}`, hl: false });
-    const depEq = fmtPoly([1, 0, P, Q], ['y^3', 'y^2', 'y', '']);
-    steps.push({ text: `化为: ${depEq} = 0`, hl: true });
-
-    const discriminant = (Q * Q) / 4 + (P * P * P) / 27;
-    steps.push({ text: `判别式: Δ = Q²/4 + P³/27 = ${formatNum(discriminant)}`, hl: false });
-
-    const solutions = [];
-    const shift = p / 3; // 回代偏移量
-
-    if (Math.abs(discriminant) < 1e-10) {
-        // Δ = 0：三个实根（至少两个相等）
-        steps.push({ text: 'Δ = 0，有三个实根（至少两个相等）', hl: false });
-        const u = Math.cbrt(-Q / 2);
-        const x1 = 2 * u - shift;
-        const x2 = -u - shift;
-        solutions.push(formatNum(x1), formatNum(x2), formatNum(x2));
-        steps.push({ text: `u = ∛(−Q/2) = ${formatNum(u)}`, hl: false });
-        steps.push({ text: `✓ x₁ = 2u − p/3 = ${formatNum(x1)}`, hl: true });
-        steps.push({ text: `✓ x₂ = x₃ = −u − p/3 = ${formatNum(x2)} (重根)`, hl: true });
-    } else if (discriminant > 1e-10) {
-        // Δ > 0：一个实根 + 两个共轭复根
-        steps.push({ text: 'Δ > 0，有一个实根和两个共轭复根', hl: false });
-        const sqrtD = Math.sqrt(discriminant);
-        const u = Math.cbrt(-Q / 2 + sqrtD);
-        const v = Math.cbrt(-Q / 2 - sqrtD);
-        const x1 = u + v - shift;
-        solutions.push(formatNum(x1));
-        steps.push({ text: `√Δ = ${formatNum(sqrtD)}`, hl: false });
-        steps.push({ text: `u = ∛(−Q/2 + √Δ) = ${formatNum(u)}`, hl: false });
-        steps.push({ text: `v = ∛(−Q/2 − √Δ) = ${formatNum(v)}`, hl: false });
-
-        const realPart = -(u + v) / 2 - shift;
-        const imagPart = (Math.sqrt(3) / 2) * (u - v);
-        solutions.push(`${formatNum(realPart)}+${formatNum(Math.abs(imagPart))}i`);
-        solutions.push(`${formatNum(realPart)}-${formatNum(Math.abs(imagPart))}i`);
-        steps.push({ text: `✓ x₁ = u + v − p/3 = ${formatNum(x1)} (实根)`, hl: true });
-        steps.push({ text: `✓ x₂ = ${formatNum(realPart)} + ${formatNum(Math.abs(imagPart))}i`, hl: true });
-        steps.push({ text: `✓ x₃ = ${formatNum(realPart)} − ${formatNum(Math.abs(imagPart))}i`, hl: true });
-    } else {
-        // Δ < 0：三个不等实根（三角函数法）
-        steps.push({ text: 'Δ < 0，有三个不等实根（三角函数法）', hl: false });
-        const phi = Math.acos((-Q / 2) / Math.sqrt(-(P * P * P) / 27));
-        const r = 2 * Math.sqrt(-P / 3);
-        steps.push({ text: `φ = arccos(−Q/2 / √(−P³/27)) = ${formatNum(phi)} rad`, hl: false });
-        steps.push({ text: `r = 2√(−P/3) = ${formatNum(r)}`, hl: false });
-        for (let k = 0; k < 3; k++) {
-            const angle = (phi + 2 * Math.PI * k) / 3;
-            const xk = r * Math.cos(angle) - shift;
-            solutions.push(formatNum(xk));
-            steps.push({ text: `✓ x${k + 1} = r·cos((φ+2π·${k})/3) − p/3 = ${formatNum(xk)}`, hl: true });
-        }
-    }
-
-    const display = solutions.map((s, i) => `x${subNum(i + 1)} = ${s}`).join('\n');
-    return {
-        type: 'cubic', degree: 3,
-        a3, a: a2, b: a1, c: a0,
-        solutions, display,
-    };
-}
-
-function formatCoeff2(v) {
-    if (Math.abs(v - 1) < 1e-10) return '+';
-    if (Math.abs(v + 1) < 1e-10) return '-';
-    if (v >= 0) return `+${formatNum(v)}`;
-    return `-${formatNum(Math.abs(v))}`;
-}
-
-function subNum(n) {
-    const subs = ['₀', '₁', '₂', '₃', '₄', '₅'];
-    return subs[n] || String(n);
-}
-
-// 插入方程模板到输入栏
-function insertSolveHint(hint) {
-    playClick();
-    inputText.value = hint;
-}
-
-function clearResults() {
+function clearResults(): void {
     numbers.value = [];
     errorMsg.value = "";
     displayResult.value = null;
     lastResultValue.value = null;
 }
 
-// 历史记录点击复用
-function fillFromHistory(item) {
+function fillFromHistory(item: HistoryItem): void {
     inputText.value = item.nums ? item.nums.map(formatNum).join(" ") : item.input;
     errorMsg.value = "";
 }
 
-// 批量粘贴处理
-function handleQuickPaste() {
+function handleQuickPaste(): void {
     errorMsg.value = "";
     const raw = quickPasteText.value.trim();
     if (!raw) return;
-    // 按逗号、空格、换行分割
     const tokens = raw.split(/[,\s\n]+/);
-    const nums = [];
+    const nums: number[] = [];
     for (const token of tokens) {
         if (!token) continue;
-        try {
-            nums.push(evaluateSingle(token));
-        } catch (err) {
-            errorMsg.value = `"${token}": ${err.message || err}`;
+        const val = evaluateSingle(token);
+        if (isNaN(val)) {
+            errorMsg.value = `"${token}": 请输入正确的表达式`;
             return;
         }
+        nums.push(val);
     }
     if (nums.length === 0) {
         errorMsg.value = "未解析到有效的数字";
@@ -1084,19 +525,17 @@ function handleQuickPaste() {
     quickPasteText.value = "";
 }
 
-// 一键复制
-function copyToClipboard(text, idx) {
+function copyToClipboard(text: unknown, idx: number): void {
     navigator.clipboard.writeText(String(text));
     copiedIdx.value = idx;
     setTimeout(() => (copiedIdx.value = -1), 1200);
 }
 
-// 复制等级评定表格（TSV 格式，可直接粘贴到 Excel）
 const gradeTableCopied = ref(false);
-function copyGradeTable() {
+function copyGradeTable(): void {
     const header = ["序号", "数值", "排名", "分位%", "等级"];
     const rows = sortedGradeData.value.map(r => [
-        r.idx,
+        String(r.idx),
         formatNum(r.raw),
         `#${r.rank}`,
         `${r.pct}%`,
@@ -1108,113 +547,17 @@ function copyGradeTable() {
     setTimeout(() => (gradeTableCopied.value = false), 1500);
 }
 
-// 将数学表达式字符串转换为可求值的形式
-function prepareExpression(expr) {
-    let prepared = expr.trim().toLowerCase();
-    // 隐式乘法：数字与变量、变量与变量之间自动补 *
-    const unitVars = 'km|hour|min|second|sec|pi|e';
-    const timeVars = 'hour|min|second|sec';
-    // 数字+单位 → 乘法: 5 km → 5*km, 30 min → 30*min
-    prepared = prepared.replace(new RegExp(`(\\d)\\s+(${unitVars})\\b`, 'g'), '$1*$2');
-    // 时间单位+数字 → 加法: min 30 → min + 30  (30*min 30*sec → 30*min + 30*sec)
-    prepared = prepared.replace(new RegExp(`\\b(${timeVars})\\s+(\\d)`, 'g'), '$1 + $2');
-    // 距离+数字 → 乘法: km 5 → km*5
-    prepared = prepared.replace(new RegExp(`\\b(km)\\s+(\\d)`, 'g'), '$1*$2');
-    // 单位+单位 → 乘法: km hour → km*hour
-    prepared = prepared.replace(new RegExp(`\\b(${unitVars})\\s+(${unitVars})\\b`, 'g'), '$1*$2');
-    // 无空格: 5km → 5*km
-    prepared = prepared.replace(new RegExp(`(\\d)(${unitVars})\\b`, 'g'), '$1*$2');
-    // 除法后时间表达式 → 括号包裹:
-    // "5*km / 30*min" → "5*km / (30*min)"
-    // "5*km / 30*min + 30*sec" → "5*km / (30*min + 30*sec)"
-    prepared = prepared.replace(
-        new RegExp(`/\\s*(\\d+(?:\\.\\d+)?\\s*\\*\\s*(?:${timeVars})\\b(?:\\s*\\+\\s*\\d+(?:\\.\\d+)?\\s*\\*\\s*(?:${timeVars})\\b)*)`, 'g'),
-        (_, terms) => `/(${terms.trim()})`
-    );
-    // 百分号
-    prepared = prepared.replace(/(\d+\.?\d*)%/g, "($1/100)");
-    // 阶乘
-    prepared = prepared.replace(/(\d+\.?\d*)!/g, "factorial($1)");
-    // 组合与排列
-    prepared = prepared.replace(/\bncr\s*\((\d+)\s*,\s*(\d+)\)/g, "ncr($1,$2)");
-    prepared = prepared.replace(/\bnpr\s*\((\d+)\s*,\s*(\d+)\)/g, "npr($1,$2)");
-
-    // 第1轮：直接映射到 Math.*（不依赖其他函数）
-    prepared = prepared.replace(/\bfloor\b/g, "Math.floor");
-    prepared = prepared.replace(/\bceil\b/g, "Math.ceil");
-    prepared = prepared.replace(/\bround\b/g, "Math.round");
-    prepared = prepared.replace(/\bsign\b/g, "Math.sign");
-    prepared = prepared.replace(/\bcbrt\b/g, "Math.cbrt");
-    prepared = prepared.replace(/\blog2\b/g, "Math.log2");
-    prepared = prepared.replace(/\bhypot\b/g, "Math.hypot");
-    prepared = prepared.replace(/\bsinh\b/g, "Math.sinh");
-    prepared = prepared.replace(/\bcosh\b/g, "Math.cosh");
-    prepared = prepared.replace(/\btanh\b/g, "Math.tanh");
-    prepared = prepared.replace(/\basin\b/g, "Math.asin");
-    prepared = prepared.replace(/\bacos\b/g, "Math.acos");
-    prepared = prepared.replace(/\batan\b/g, "Math.atan");
-    prepared = prepared.replace(/\blog\b/g, "Math.log10");
-    prepared = prepared.replace(/\bpow\b/g, "Math.pow");
-
-    // 第2轮：基础函数（sind/cosd/tand 等依赖它们，必须先替换）
-    // 注意 \b 确保 sind 不会误匹配为 sin
-    prepared = prepared.replace(/\bsin\b/g, "Math.sin");
-    prepared = prepared.replace(/\bcos\b/g, "Math.cos");
-    prepared = prepared.replace(/\btan\b/g, "Math.tan");
-    prepared = prepared.replace(/\bpi\b/g, "Math.PI");
-    prepared = prepared.replace(/\babs\b/g, "Math.abs");
-    prepared = prepared.replace(/\bsqrt\b/g, "Math.sqrt");
-    prepared = prepared.replace(/\bln\b/g, "Math.log");
-    prepared = prepared.replace(/\blg\b/g, "Math.log10");
-    prepared = prepared.replace(/\be\b(?![a-zA-Z])/g, "Math.E");
-
-    // 第3轮：派生函数（语法糖，依赖第2轮已替换的基础函数）
-    prepared = prepared.replace(/\bsind\(([^)]+)\)/g, "Math.sin(($1)*Math.PI/180)");
-    prepared = prepared.replace(/\bcosd\(([^)]+)\)/g, "Math.cos(($1)*Math.PI/180)");
-    prepared = prepared.replace(/\btand\(([^)]+)\)/g, "Math.tan(($1)*Math.PI/180)");
-    prepared = prepared.replace(/\brad\(([^)]+)\)/g, "(($1)*Math.PI/180)");
-    prepared = prepared.replace(/\bdeg\(([^)]+)\)/g, "(($1)*180/Math.PI)");
-    prepared = prepared.replace(/\bmod\(([^,]+),([^)]+)\)/g, "(($1%$2+$2)%$2)");
-    // 进制换算: hex2dec(ff) → parseInt("ff",16), bin2dec(1010) → parseInt("1010",2)
-    prepared = prepared.replace(/\bhex2dec\(([a-f0-9]+)\)/g, 'parseInt("$1",16)');
-    prepared = prepared.replace(/\bbin2dec\(([01]+)\)/g, 'parseInt("$1",2)');
-    prepared = prepared.replace(/\^/g, "**");
-    return prepared;
-}
-
-// 计算单个表达式
-function evaluateSingle(expr) {
-    const prepared = prepareExpression(expr);
-    let result;
-    try {
-        // 使用 Function 构造器进行求值
-        result = new Function("Math", "factorial", "ncr", "npr", "km", "Hour", "Min", "Second", "hour", "min", "second", "sec", `"use strict"; return (${prepared});`)(Math, factorial, ncr, npr, 1, 1, 1 / 60, 1 / 3600, 1, 1 / 60, 1 / 3600, 1 / 3600);
-    } catch {
-        throw new Error("请输入正确的表达式");
-    }
-    const num = Number(result);
-    if (isNaN(num) || !isFinite(num)) {
-        throw new Error("请输入正确的表达式");
-    }
-    return num;
-}
-
-// 点击预设函数按钮：如输入栏有有效数字，则将其作为参数嵌入表达式
-function insertHint(hint) {
+function insertHint(hint: string): void {
     playClick();
-    // 方程模板：直接替换输入
     if (calcMode.value === 'solve' && hint.includes('=')) {
         inputText.value = hint;
         return;
     }
     const trimmed = inputText.value.trim();
-    // 检查输入栏是否为一个有效数字（支持整数、小数、负数、科学计数法）
     const isNumber = trimmed !== "" && !isNaN(Number(trimmed)) && isFinite(Number(trimmed));
 
     if (hint.includes("(")) {
-        // 带括号的函数，如 sin(x)、sqrt(x)、nCr(n,r) 等
         if (isNumber) {
-            // 多参数函数：只替换第一个参数，保留其余占位
             if (hint.includes(",")) {
                 inputText.value = hint.replace(/\([^,)]+/, `(${trimmed}`);
             } else {
@@ -1224,7 +567,6 @@ function insertHint(hint) {
             inputText.value = trimmed ? trimmed + " " + hint : hint;
         }
     } else {
-        // 不带括号的常量或模板，如 pi、e、0xff、x! 等
         if (isNumber && hint === "x!") {
             inputText.value = trimmed + "!";
         } else if (isNumber && hint === "x%") {
@@ -1241,12 +583,10 @@ function insertHint(hint) {
     }
 }
 
-// 键盘输入处理
-function handleKeyboardSubmit() {
+function handleKeyboardSubmit(): void {
     errorMsg.value = "";
     const input = inputText.value.trim();
 
-    // 无输入但有上次结果 → 直接复用结果
     if (!input && lastResultValue.value !== null) {
         return;
     }
@@ -1255,18 +595,20 @@ function handleKeyboardSubmit() {
     // ===== 方程求解模式 =====
     if (calcMode.value === 'solve' && input.includes('=')) {
         try {
-            const result = solveEquation(input);
-            numbers.value = result.solutions.map(s => {
+            const { steps, result } = solveEq(input, useDegrees.value);
+            solveSteps.value = steps;
+            solveResult.value = result;
+            numbers.value = result.solutions.map((s: string) => {
                 const match = String(s).match(/^([-+]?\d+\.?\d*)/);
                 return match ? Number(match[1]) : NaN;
-            }).filter(n => !isNaN(n));
+            }).filter((n: number) => !isNaN(n));
             displayResult.value = result.display.replace(/\n/g, '  |  ');
             lastInput.value = input;
             lastResultValue.value = numbers.value.length > 0 ? numbers.value[0] : null;
             addHistory("SOLVE", input, numbers.value.filter(n => isFinite(n)));
             inputText.value = "";
             return;
-        } catch (err) {
+        } catch (err: any) {
             errorMsg.value = err.message || String(err);
             return;
         }
@@ -1280,49 +622,46 @@ function handleKeyboardSubmit() {
 
     displayResult.value = null;
 
-    try {
-        const nums = [];
-        // 包含逗号或换行 → 直接按分隔符处理
-        if (/[,\n]/.test(expr)) {
-            const tokens = expr.split(/[,\s\n]+/);
-            for (const token of tokens) {
-                if (!token) continue;
-                nums.push(evaluateSingle(token));
+    const nums: number[] = [];
+    if (/[,\n]/.test(expr)) {
+        const tokens = expr.split(/[,\s\n]+/);
+        for (const token of tokens) {
+            if (!token) continue;
+            const val = evaluateSingle(token);
+            if (isNaN(val)) {
+                errorMsg.value = "请输入正确的表达式";
+                return;
             }
-        } else {
-            // 直接求值整行表达式
-            const val = evaluateSingle(expr);
-            if (val !== undefined && isFinite(val)) {
-                nums.push(val);
-            } else {
-                throw new Error("请输入正确的表达式");
-            }
+            nums.push(val);
         }
-        if (nums.length === 0) {
-            errorMsg.value = "未解析到有效的数字";
+    } else {
+        const val = evaluateSingle(expr);
+        if (isNaN(val)) {
+            errorMsg.value = "请输入正确的表达式";
             return;
         }
-        // 有上次结果且非运算符开头 → 多值输入将结果纳入数组首位
-        if (lastResultValue.value !== null && !/^[+\-*/^%]/.test(input)) {
-            if (/[,\n]/.test(input) || nums.length > 1) {
-                nums.unshift(lastResultValue.value);
-                expr = String(lastResultValue.value) + ', ' + input;
-            }
-        }
-        numbers.value = nums;
-        addHistory("键盘", expr, nums);
-        lastInput.value = expr;
-        // 屏幕显示总和
-        const sum = nums.reduce((a, b) => a + b, 0);
-        lastResultValue.value = nums.length > 1 ? sum : nums[0];
-        displayResult.value = nums.length > 1 ? formatNum(sum) : formatNum(nums[0]);
-        inputText.value = "";
-    } catch (err) {
-        errorMsg.value = err.message || String(err);
+        nums.push(val);
     }
+    if (nums.length === 0) {
+        errorMsg.value = "未解析到有效的数字";
+        return;
+    }
+    if (lastResultValue.value !== null && !/^[+\-*/^%]/.test(input)) {
+        if (/[,\n]/.test(input) || nums.length > 1) {
+            nums.unshift(lastResultValue.value);
+            expr = String(lastResultValue.value) + ', ' + input;
+        }
+    }
+    numbers.value = nums;
+    addHistory("键盘", expr, nums);
+    lastInput.value = expr;
+    const sum = nums.reduce((a, b) => a + b, 0);
+    lastResultValue.value = nums.length > 1 ? sum : nums[0];
+    displayResult.value = nums.length > 1 ? formatNum(sum) : formatNum(nums[0]);
+    inputText.value = "";
 }
 
-function addHistory(source, input, nums) {
+function addHistory(source: string, input: string, nums: number[]): void {
     history.value.unshift({
         id: Date.now(),
         source,
@@ -1336,9 +675,6 @@ function addHistory(source, input, nums) {
     if (history.value.length > 20) history.value.pop();
 }
 
-function formatNum(n) {
-    return Number.isInteger(n) ? n.toString() : n.toFixed(4);
-}
 </script>
 
 <template>

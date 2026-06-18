@@ -2,10 +2,14 @@
 #  Any Calculator — Tauri (Vue + Vite + Rust)  Makefile
 # ============================================================
 
-.PHONY: help dev dev-android dev-ios build build-debug build-android build-android-debug build-ios run-ios ios-rust ios-xcode release clean clean-rust clean-frontend clean-android clean-ios clean-all
+.PHONY: help typecheck check dev dev-android dev-ios build build-debug build-android build-android-debug build-ios run-ios ios-rust ios-xcode release clean clean-rust clean-frontend clean-android clean-ios clean-all
 
 help:
 	@echo "Any Calculator — 可用目标:"
+	@echo ""
+	@echo "  代码检查:"
+	@echo "    make typecheck         TypeScript 类型检查 (vue-tsc)"
+	@echo "    make check             类型检查 + 前端构建 (快速验证)"
 	@echo ""
 	@echo "  开发调试:"
 	@echo "    make dev              启动桌面开发模式 (热更新)"
@@ -19,7 +23,7 @@ help:
 	@echo "    make build-android-debug  Android Debug (免签名)"
 	@echo "    make build-ios        iOS Release IPA (Archive 导出)"
 	@echo "    make run-ios          直连 iPhone 真机安装运行"
-	@echo "    make release          一键发布 (桌面 + Android + iOS)"
+	@echo "    make release          一键发布 (check → 桌面 + Android + iOS)"
 	@echo ""
 	@echo "  iOS 专用:"
 	@echo "    make ios-rust         仅编译 Rust → iOS (aarch64-apple-ios)"
@@ -33,6 +37,18 @@ help:
 	@echo "    make clean-ios        清理 iOS 构建产物 + Externals"
 	@echo "    make clean-all        深度清理 (含 node_modules)"
 	@echo ""
+
+# ==================== 代码检查 ====================
+
+typecheck:
+	@echo "=== TypeScript 类型检查 ==="
+	npx vue-tsc --noEmit
+	@echo "=== 类型检查通过 ==="
+
+check: typecheck
+	@echo "=== 前端构建 (Vite) ==="
+	npm run build
+	@echo "=== 检查全部通过 ==="
 
 # ==================== 开发调试 ====================
 
@@ -76,9 +92,6 @@ run-ios:
 	@echo "打开 Xcode → Product → Destination → 选"吴利利的iPhone" → Cmd+R"
 	open -a Xcode src-tauri/gen/apple/calculator-tauri.xcodeproj
 
-# 仅编译 Rust → iOS arm64（调试/预编译用）
-ios-rust:
-
 # 仅编译 Rust → iOS arm64（调试用）
 ios-rust:
 	@echo "=== 编译 Rust for iOS (aarch64-apple-ios) ==="
@@ -90,8 +103,8 @@ ios-xcode:
 	@echo "=== 打开 Xcode iOS 项目 ==="
 	open -a Xcode src-tauri/gen/apple/calculator-tauri.xcodeproj
 
-# 一键发布
-release: clean
+# 一键发布：先检查再构建各平台
+release: check
 	@echo "=== 构建桌面 Release ==="
 	npm run tauri build
 	@echo "=== 构建 Android Release ==="
@@ -110,10 +123,7 @@ clean-rust:
 	cd src-tauri && cargo clean
 
 clean-frontend:
-	@echo "=== 清理前端 dist/ ==="
-	rm -rf dist/
-	rm -rf dist-ssr/
-	rm -rf .vite/
+	@echo "=== 清理前端 ===\n\trm -rf dist/ dist-ssr/ .vite/ tsconfig.tsbuildinfo tsconfig.node.tsbuildinfo\n\t@echo \"=== 前端清理完成 ==="
 
 clean-android:
 	@echo "=== 清理 Android 构建产物 ==="
