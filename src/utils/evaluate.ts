@@ -39,6 +39,37 @@ export function formatNum(n: number): string {
     return Number.isInteger(n) ? n.toString() : n.toFixed(4);
 }
 
+// —— 智能分割：按括号外的逗号/空白拆分，保留函数内逗号 ——
+function splitByTopLevelCommas(s: string): string[] {
+    const result: string[] = [];
+    let depth = 0;
+    let current = '';
+    for (const ch of s) {
+        if (ch === '(') { depth++; current += ch; }
+        else if (ch === ')') { depth--; current += ch; }
+        else if (ch === ',' && depth === 0) {
+            const trimmed = current.trim();
+            if (trimmed) result.push(trimmed);
+            current = '';
+        } else {
+            current += ch;
+        }
+    }
+    const trimmed = current.trim();
+    if (trimmed) result.push(trimmed);
+    return result;
+}
+
+/** 智能分割表达式：先按空白拆分，再对每个 token 按括号外的逗号拆分 */
+export function splitTokens(expr: string): string[] {
+    const tokens: string[] = [];
+    const whitespaceTokens = expr.split(/\s+/).filter(Boolean);
+    for (const token of whitespaceTokens) {
+        tokens.push(...splitByTopLevelCommas(token));
+    }
+    return tokens;
+}
+
 /** 将数学表达式字符串转换为 JavaScript 可求值的形式 */
 export function prepareExpression(expr: string): string {
     let prepared = expr.trim().toLowerCase();

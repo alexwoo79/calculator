@@ -15,7 +15,7 @@
         "title": "Any Calculator",
         "width": 420,
         "height": 831,
-        "resizable": false,
+        "resizable": true,
         "center": true,
         "minWidth": 420,
         "minHeight": 831

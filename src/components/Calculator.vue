@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
 import { solveEquation as solveEq } from "../utils/solver";
-import { factorial, ncr, npr, prepareExpression, evaluateSingle, formatNum } from "../utils/evaluate";
+import { evaluateSingle, formatNum, splitTokens } from "../utils/evaluate";
 import type { HistoryItem } from "../types";
 
 // —— 内部类型 ——
@@ -31,6 +31,10 @@ const showHints = ref(false);
 const showStats = ref(false);
 const showPace = ref(true);
 const paceHints: Set<string> = new Set(['km', 'Hour', 'Min', 'Second']);
+
+// ===== 历史记录滚动 =====
+const historyIdx = ref(-1);   // -1 = 不在浏览中，0=最新，1=次新...
+const savedInput = ref("");   // 进入历史浏览前的输入暂存
 
 // ===== 功能模式 =====
 const calcMode = ref<'standard' | 'solve'>('standard');
@@ -108,6 +112,29 @@ const resultUnit = computed(() => {
 const activeKey = ref<string | null>(null);
 let audioCtx: AudioContext | null = null;
 
+function navigateHistory(direction: number): void {
+    if (history.value.length === 0) return;
+    if (historyIdx.value === -1) {
+        savedInput.value = inputText.value;
+        historyIdx.value = 0;
+    } else {
+        const next = historyIdx.value + direction;
+        if (next < 0) {
+            historyIdx.value = -1;
+            inputText.value = savedInput.value;
+            savedInput.value = "";
+            return;
+        }
+        if (next >= history.value.length) return;
+        historyIdx.value = next;
+    }
+    inputText.value = history.value[historyIdx.value].input;
+    nextTick(() => {
+        const inp = document.querySelector('.screen-input-field') as HTMLInputElement | null;
+        if (inp) inp.setSelectionRange(inp.value.length, inp.value.length);
+    });
+}
+
 const keyMap: Record<string, string> = {
     '0': '0', '1': '1', '2': '2', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7', '8': '8', '9': '9',
     '.': '.', ',': '.',
@@ -149,11 +176,18 @@ function onKeyDown(e: KeyboardEvent): void {
         return;
     }
 
-    const mapped = keyMap[e.key];
-    if (!mapped) return;
-
     const input = document.activeElement as HTMLInputElement | null;
     const isOurInput = isInputFocused && !!input?.closest('.calc-screen');
+
+    // ArrowUp/ArrowDown: 历史记录滚动（仅输入框聚焦时）
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && isOurInput) {
+        e.preventDefault();
+        navigateHistory(e.key === 'ArrowUp' ? -1 : 1);
+        return;
+    }
+
+    const mapped = keyMap[e.key];
+    if (!mapped) return;
 
     if (mapped === 'AC') {
         e.preventDefault();
@@ -505,7 +539,7 @@ function handleQuickPaste(): void {
     errorMsg.value = "";
     const raw = quickPasteText.value.trim();
     if (!raw) return;
-    const tokens = raw.split(/[,\s\n]+/);
+    const tokens = splitTokens(raw);
     const nums: number[] = [];
     for (const token of tokens) {
         if (!token) continue;
@@ -622,20 +656,11 @@ function handleKeyboardSubmit(): void {
 
     displayResult.value = null;
 
+    const tokens = splitTokens(expr);
     const nums: number[] = [];
-    if (/[,\n]/.test(expr)) {
-        const tokens = expr.split(/[,\s\n]+/);
-        for (const token of tokens) {
-            if (!token) continue;
-            const val = evaluateSingle(token);
-            if (isNaN(val)) {
-                errorMsg.value = "请输入正确的表达式";
-                return;
-            }
-            nums.push(val);
-        }
-    } else {
-        const val = evaluateSingle(expr);
+    for (const token of tokens) {
+        if (!token) continue;
+        const val = evaluateSingle(token);
         if (isNaN(val)) {
             errorMsg.value = "请输入正确的表达式";
             return;
@@ -647,7 +672,7 @@ function handleKeyboardSubmit(): void {
         return;
     }
     if (lastResultValue.value !== null && !/^[+\-*/^%]/.test(input)) {
-        if (/[,\n]/.test(input) || nums.length > 1) {
+        if (tokens.length > 1 || nums.length > 1) {
             nums.unshift(lastResultValue.value);
             expr = String(lastResultValue.value) + ', ' + input;
         }
@@ -659,6 +684,7 @@ function handleKeyboardSubmit(): void {
     lastResultValue.value = nums.length > 1 ? sum : nums[0];
     displayResult.value = nums.length > 1 ? formatNum(sum) : formatNum(nums[0]);
     inputText.value = "";
+    historyIdx.value = -1;  // 计算后重置历史浏览位置
 }
 
 function addHistory(source: string, input: string, nums: number[]): void {
