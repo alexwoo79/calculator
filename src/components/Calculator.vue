@@ -656,9 +656,12 @@ function handleKeyboardSubmit(): void {
 
     displayResult.value = null;
 
-    const tokens = splitTokens(expr);
+    // 若表达式含物理单位 + 运算符（如 1km / 1hour 2min），整体求值，避免按空格分割破坏语义
+    const hasUnit = /\b(km|hour|min|sec|second)\b/i.test(expr);
+    const hasOp = /[+\-*/^]/.test(expr);
+    const rawTokens = hasUnit && hasOp ? [expr] : splitTokens(expr);
     const nums: number[] = [];
-    for (const token of tokens) {
+    for (const token of rawTokens) {
         if (!token) continue;
         const val = evaluateSingle(token);
         if (isNaN(val)) {
