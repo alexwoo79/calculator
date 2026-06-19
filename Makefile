@@ -2,7 +2,7 @@
 #  Any Calculator — Tauri (Vue + Vite + Rust)  Makefile
 # ============================================================
 
-.PHONY: help typecheck check dev dev-android dev-ios build build-debug build-android build-android-debug build-ios run-ios ios-rust ios-xcode release clean clean-rust clean-frontend clean-android clean-ios clean-all
+.PHONY: help typecheck check dev dev-android dev-ios build build-debug build-android build-android-debug build-ios run-ios ios-rust ios-xcode ios-doctor ios-device-build ios-device-build-release ios-device-deploy ios-device-deploy-release ios-ipa-install release clean clean-rust clean-frontend clean-android clean-ios clean-all
 
 help:
 	@echo "Any Calculator — 可用目标:"
@@ -28,6 +28,14 @@ help:
 	@echo "  iOS 专用:"
 	@echo "    make ios-rust         仅编译 Rust → iOS (aarch64-apple-ios)"
 	@echo "    make ios-xcode        在 Xcode 中打开 iOS 项目"
+	@echo ""
+	@echo "  iOS 真机直连 (绕过 Xcode GUI，解决连接报错):"
+	@echo "    make ios-doctor       诊断 iOS 开发环境 (设备/证书/工具)"
+	@echo "    make ios-device-build    xcodebuild 构建 .app (Debug, 不部署)"
+	@echo "    make ios-device-build-release  xcodebuild 构建 .app (Release)"
+	@echo "    make ios-device-deploy    ★ 一键构建+部署到真机 (推荐)"
+	@echo "    make ios-device-deploy-release  构建 Release + 部署到真机"
+	@echo "    make ios-ipa-install IPA=path   将指定 IPA 安装到真机"
 	@echo ""
 	@echo "  清理:"
 	@echo "    make clean            清理所有构建产物"
@@ -92,10 +100,171 @@ run-ios:
 ios-xcode:
 	@echo "=== 打开 Xcode iOS 项目 ==="
 	open -a Xcode src-tauri/gen/apple/calculator-tauri.xcodeproj
+
 ios-rust:
 	@echo "=== 编译 Rust for iOS (aarch64-apple-ios) ==="
 	cd src-tauri && cargo build --target aarch64-apple-ios
 	@echo "=== Rust iOS 编译完成 ==="
+
+# ==================== iOS 真机直连 (绕过 Xcode GUI) ====================
+# 解决 Xcode 连接设备频繁报错的问题：
+#   核心思路 — xcodebuild 命令行构建 + ios-deploy 推送 = 完全绕过 Xcode GUI
+#   先决条件 — brew install ios-deploy (已安装: 1.12.2)
+
+IOS_PROJ    := src-tauri/gen/apple/calculator-tauri.xcodeproj
+IOS_SCHEME  := calculator-tauri_iOS
+IOS_DST     := generic/platform=iOS
+
+# 获取当前 USB 连接的 iOS 设备 ID（优先真机）
+IOS_DEVICE_ID := $(shell ios-deploy --detect 2>/dev/null || echo "")
+
+# === 诊断 ===
+ios-doctor:
+	@echo "========== iOS 开发环境诊断 =========="
+	@echo ""
+	@echo "[1/5] 必要工具检查..."
+	@command -v xcodebuild >/dev/null && echo "  ✅ xcodebuild: $$(xcodebuild -version | head -1)" || echo "  ❌ xcodebuild 未找到"
+	@command -v ios-deploy >/dev/null   && echo "  ✅ ios-deploy: $$(ios-deploy --version)" || echo "  ❌ ios-deploy 未安装 → brew install ios-deploy"
+	@command -v idevice_id >/dev/null   && echo "  ✅ idevice_id (libimobiledevice)" || echo "  ⚠️  idevice_id 未安装 → brew install libimobiledevice"
+	@echo ""
+	@echo "[2/5] USB 连接的真机设备..."
+	@if [ -n "$(IOS_DEVICE_ID)" ]; then \
+		echo "  ✅ 检测到设备: $(IOS_DEVICE_ID)"; \
+		ios-deploy --list-bundle_id --detect 2>/dev/null || true; \
+	else \
+		echo "  ❌ 未检测到 USB 连接的 iOS 设备"; \
+		echo "     请确保: 1) USB 已连接  2) 设备已解锁  3) 已信任此电脑"; \
+	fi
+	@echo ""
+	@echo "[3/5] Xcode 项目..."
+	@if [ -d "$(IOS_PROJ)" ]; then \
+		echo "  ✅ $(IOS_PROJ)"; \
+	else \
+		echo "  ❌ 项目不存在，请先运行: npx tauri ios init"; \
+	fi
+	@echo ""
+	@echo "[4/5] Rust iOS target..."
+	@rustup target list --installed | grep -q aarch64-apple-ios && echo "  ✅ aarch64-apple-ios" || echo "  ❌ 未安装 → rustup target add aarch64-apple-ios"
+	@echo ""
+	@echo "[5/5] 签名证书 (Development)..."
+	@security find-identity -v -p codesigning 2>/dev/null | grep -q "Apple Development" && echo "  ✅ 找到开发证书" || echo "  ⚠️  未找到开发证书，请在 Xcode 中配置签名"
+	@echo ""
+	@echo "=========================================="
+
+# === 仅构建 .app (不部署) ===
+ios-device-build:
+	@echo "=== xcodebuild 构建 iOS Debug (真机) ==="
+	@if [ ! -d "$(IOS_PROJ)" ]; then \
+		echo "❌ 项目不存在，请先运行: npx tauri ios init"; \
+		exit 1; \
+	fi
+	cd src-tauri/gen/apple && xcodebuild \
+		-project calculator-tauri.xcodeproj \
+		-scheme $(IOS_SCHEME) \
+		-configuration debug \
+		-destination '$(IOS_DST)' \
+		-derivedDataPath build \
+		build 2>&1 | grep -E '(^\*\*|error:|warning:|BUILD)'
+	@echo "=== 构建完成，.app 位于: src-tauri/gen/apple/build/Build/Products/debug-iphoneos/ ==="
+
+ios-device-build-release:
+	@echo "=== xcodebuild 构建 iOS Release (真机) ==="
+	@if [ ! -d "$(IOS_PROJ)" ]; then \
+		echo "❌ 项目不存在，请先运行: npx tauri ios init"; \
+		exit 1; \
+	fi
+	cd src-tauri/gen/apple && xcodebuild \
+		-project calculator-tauri.xcodeproj \
+		-scheme $(IOS_SCHEME) \
+		-configuration release \
+		-destination '$(IOS_DST)' \
+		-derivedDataPath build \
+		build 2>&1 | grep -E '(^\*\*|error:|warning:|BUILD)'
+	@echo "=== 构建完成 ==="
+
+# === 一键构建+部署到真机 (★ 推荐日常使用) ===
+ios-device-deploy:
+	@echo "========================================"
+	@echo "  iOS 真机部署 (xcodebuild + ios-deploy)"
+	@echo "========================================"
+	@# 检查设备
+	@if [ -z "$(IOS_DEVICE_ID)" ]; then \
+		echo "❌ 未检测到 USB 连接的 iOS 设备"; \
+		echo "   请确保: 1) USB 已连接  2) 设备已解锁  3) 已信任此电脑"; \
+		exit 1; \
+	fi
+	@echo "📱 目标设备: $(IOS_DEVICE_ID)"
+	@echo ""
+	@# 构建
+	@echo "🔨 Step 1/2: xcodebuild 构建 (Debug)..."
+	cd src-tauri/gen/apple && xcodebuild \
+		-project calculator-tauri.xcodeproj \
+		-scheme $(IOS_SCHEME) \
+		-configuration debug \
+		-destination '$(IOS_DST)' \
+		-derivedDataPath build \
+		build 2>&1 | grep -E '(^\*\*|error:|warning:|BUILD)'
+	@echo "✅ 构建成功"
+	@echo ""
+	@# 部署
+	@echo "🚀 Step 2/2: ios-deploy 推送到设备..."
+	APP_PATH="$$(find src-tauri/gen/apple/build/Build/Products/debug-iphoneos -name '*.app' -maxdepth 1 | head -1)"; \
+	if [ -z "$$APP_PATH" ]; then \
+		echo "❌ 找不到 .app 产物"; \
+		exit 1; \
+	fi; \
+	echo "   App: $$APP_PATH"; \
+	ios-deploy --bundle "$$APP_PATH" --justlaunch
+	@echo ""
+	@echo "========================================"
+	@echo "  ✅ 部署完成！App 已在设备上启动"
+	@echo "========================================"
+
+ios-device-deploy-release:
+	@echo "========================================"
+	@echo "  iOS 真机部署 Release (xcodebuild + ios-deploy)"
+	@echo "========================================"
+	@if [ -z "$(IOS_DEVICE_ID)" ]; then \
+		echo "❌ 未检测到 USB 连接的 iOS 设备"; \
+		exit 1; \
+	fi
+	@echo "📱 目标设备: $(IOS_DEVICE_ID)"
+	@echo ""
+	@echo "🔨 Step 1/2: xcodebuild 构建 (Release)..."
+	cd src-tauri/gen/apple && xcodebuild \
+		-project calculator-tauri.xcodeproj \
+		-scheme $(IOS_SCHEME) \
+		-configuration release \
+		-destination '$(IOS_DST)' \
+		-derivedDataPath build \
+		build 2>&1 | grep -E '(^\*\*|error:|warning:|BUILD)'
+	@echo "✅ 构建成功"
+	@echo ""
+	@echo "🚀 Step 2/2: ios-deploy 推送到设备..."
+	APP_PATH="$$(find src-tauri/gen/apple/build/Build/Products/release-iphoneos -name '*.app' -maxdepth 1 | head -1)"; \
+	if [ -z "$$APP_PATH" ]; then \
+		echo "❌ 找不到 .app 产物"; \
+		exit 1; \
+	fi; \
+	echo "   App: $$APP_PATH"; \
+	ios-deploy --bundle "$$APP_PATH" --justlaunch
+	@echo ""
+	@echo "========================================"
+	@echo "  ✅ 部署完成！"
+	@echo "========================================"
+
+# === 安装指定 IPA 到真机 ===
+ios-ipa-install:
+	@if [ -z "$(IPA)" ]; then \
+		echo "用法: make ios-ipa-install IPA=/path/to/app.ipa"; \
+		exit 1; \
+	fi
+	@if [ -z "$(IOS_DEVICE_ID)" ]; then \
+		echo "❌ 未检测到 USB 连接的 iOS 设备"; \
+		exit 1; \
+	fi
+	@echo "📦 安装 $(IPA) → $(IOS_DEVICE_ID)..."
+	ios-deploy --bundle "$(IPA)" --justlaunch
 
 # 一键发布：先检查再构建各平台
 release: check
@@ -117,7 +286,9 @@ clean-rust:
 	cd src-tauri && cargo clean
 
 clean-frontend:
-	@echo "=== 清理前端 ===\n\trm -rf dist/ dist-ssr/ .vite/ tsconfig.tsbuildinfo tsconfig.node.tsbuildinfo\n\t@echo \"=== 前端清理完成 ==="
+	@echo "=== 清理前端 ==="
+	rm -rf dist/ dist-ssr/ .vite/ tsconfig.tsbuildinfo tsconfig.node.tsbuildinfo
+	@echo "=== 前端清理完成 ==="
 
 clean-android:
 	@echo "=== 清理 Android 构建产物 ==="

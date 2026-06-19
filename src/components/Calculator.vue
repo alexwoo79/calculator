@@ -857,9 +857,9 @@ function addHistory(source: string, input: string, nums: number[]): void {
                         <button v-if="calcMode === 'solve'" class="calc-btn calc-solve-btn"
                             @click="playClick(); handleKeyboardSubmit()">SOLVE</button>
                         <button v-if="stats" class="calc-btn calc-detail" @click="showStats = true">DETAIL</button>
+                           </div>
+                        </div>
                     </div>
-                </div>
-            </div>
 
             <!-- ====== 右侧：统计信息面板 ====== -->
             <div class="calc-info" :class="{ 'panel-hidden': !showStats }">
@@ -955,14 +955,16 @@ function addHistory(source: string, input: string, nums: number[]): void {
                                 <table class="rank-table">
                                     <thead>
                                         <tr>
-                                            <th @click="toggleGradeSort('rank')">#</th>
-                                            <th @click="toggleGradeSort('raw')">值</th>
-                                            <th @click="toggleGradeSort('pct')">%</th>
-                                            <th @click="toggleGradeSort('grade')">等</th>
+                                            <th @click="toggleGradeSort('idx')">序{{ sortArrowFor("idx") }}</th>
+                                            <th @click="toggleGradeSort('rank')">#{{ sortArrowFor("rank") }}</th>
+                                            <th @click="toggleGradeSort('raw')">值{{ sortArrowFor("raw") }}</th>
+                                            <th @click="toggleGradeSort('pct')">%{{ sortArrowFor("pct") }}</th>
+                                            <th @click="toggleGradeSort('grade')">等{{ sortArrowFor("grade") }}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         <tr v-for="r in sortedGradeData" :key="r.idx" :class="'grade-' + r.grade">
+                                            <td>{{ r.idx }}</td>
                                             <td class="col-rank">#{{ r.rank }}</td>
                                             <td>{{ formatNum(r.raw) }}</td>
                                             <td>{{ r.pct }}%</td>
@@ -971,6 +973,9 @@ function addHistory(source: string, input: string, nums: number[]): void {
                                     </tbody>
                                 </table>
                             </div>
+                            <button class="copy-table-btn" @click="copyGradeTable">
+                                {{ gradeTableCopied ? '✓ 已复制' : '复制表格' }}
+                            </button>
                         </div>
                     </div>
 
