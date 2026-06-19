@@ -2,7 +2,7 @@
 #  Any Calculator — Tauri (Vue + Vite + Rust)  Makefile
 # ============================================================
 
-.PHONY: help typecheck check dev dev-android dev-ios build build-debug build-android build-android-debug build-ios run-ios ios-rust ios-xcode ios-doctor ios-device-build ios-device-build-release ios-device-deploy ios-device-deploy-release ios-ipa-install release clean clean-rust clean-frontend clean-android clean-ios clean-all
+.PHONY: help typecheck check dev dev-android dev-ios build build-debug build-android build-android-debug build-ios run-ios ios-rust ios-xcode ios-doctor ios-pair ios-device-build ios-device-build-release ios-device-deploy ios-device-deploy-release ios-deploy-legacy ios-ipa-install release clean clean-rust clean-frontend clean-android clean-ios clean-all
 
 help:
 	@echo "Any Calculator — 可用目标:"
@@ -30,11 +30,13 @@ help:
 	@echo "    make ios-xcode        在 Xcode 中打开 iOS 项目"
 	@echo ""
 	@echo "  iOS 真机直连 (绕过 Xcode GUI，解决连接报错):"
-	@echo "    make ios-doctor       诊断 iOS 开发环境 (设备/证书/工具)"
+	@echo "    make ios-doctor       诊断 iOS 开发环境 (CoreDevice 原生检测)"
+	@echo "    make ios-pair         设备连接修复 (无需 lockdown 配对)"
 	@echo "    make ios-device-build    xcodebuild 构建 .app (Debug, 不部署)"
 	@echo "    make ios-device-build-release  xcodebuild 构建 .app (Release)"
-	@echo "    make ios-device-deploy    ★ 一键构建+部署到真机 (推荐)"
+	@echo "    make ios-device-deploy    ★ 一键构建+部署 (devicectl 原生)"
 	@echo "    make ios-device-deploy-release  构建 Release + 部署到真机"
+	@echo "    make ios-deploy-legacy  备用方案 (ios-deploy, 需 Xcode 配对)"
 	@echo "    make ios-ipa-install IPA=path   将指定 IPA 安装到真机"
 	@echo ""
 	@echo "  清理:"
@@ -107,16 +109,15 @@ ios-rust:
 	@echo "=== Rust iOS 编译完成 ==="
 
 # ==================== iOS 真机直连 (绕过 Xcode GUI) ====================
-# 解决 Xcode 连接设备频繁报错的问题：
-#   核心思路 — xcodebuild 命令行构建 + ios-deploy 推送 = 完全绕过 Xcode GUI
-#   先决条件 — brew install ios-deploy (已安装: 1.12.2)
+# 核心思路:
+#   构建: xcodebuild 命令行 (无需 Xcode GUI)
+#   部署: devicectl (Apple CoreDevice 原生, 不需要 lockdown 配对)
+#   备用: ios-deploy (传统 lockdown 方式, 需 Xcode 配对)
 
 IOS_PROJ    := src-tauri/gen/apple/calculator-tauri.xcodeproj
 IOS_SCHEME  := calculator-tauri_iOS
 IOS_DST     := generic/platform=iOS
-
-# 获取当前 USB 连接的 iOS 设备 ID（优先真机）
-IOS_DEVICE_ID := $(shell ios-deploy --detect 2>/dev/null || echo "")
+PROJ_ROOT   := $(shell pwd)
 
 # === 诊断 ===
 ios-doctor:
@@ -124,15 +125,15 @@ ios-doctor:
 	@echo ""
 	@echo "[1/5] 必要工具检查..."
 	@command -v xcodebuild >/dev/null && echo "  ✅ xcodebuild: $$(xcodebuild -version | head -1)" || echo "  ❌ xcodebuild 未找到"
-	@command -v ios-deploy >/dev/null   && echo "  ✅ ios-deploy: $$(ios-deploy --version)" || echo "  ❌ ios-deploy 未安装 → brew install ios-deploy"
-	@command -v idevice_id >/dev/null   && echo "  ✅ idevice_id (libimobiledevice)" || echo "  ⚠️  idevice_id 未安装 → brew install libimobiledevice"
+	@command -v ios-deploy >/dev/null   && echo "  ✅ ios-deploy: $$(ios-deploy --version)" || echo "  ⚠️  ios-deploy 未安装 (备用, 非必需)"
 	@echo ""
-	@echo "[2/5] USB 连接的真机设备..."
-	@if [ -n "$(IOS_DEVICE_ID)" ]; then \
-		echo "  ✅ 检测到设备: $(IOS_DEVICE_ID)"; \
-		ios-deploy --list-bundle_id --detect 2>/dev/null || true; \
+	@echo "[2/5] CoreDevice 设备检测 (Apple 原生)..."
+	@DEVCOUNT=$$(xcrun devicectl list devices 2>/dev/null | grep -c -i 'iphone\|ipad'); \
+	if [ "$$DEVCOUNT" -gt 0 ]; then \
+		echo "  ✅ CoreDevice 检测到 $$DEVCOUNT 台设备:"; \
+		xcrun devicectl list devices 2>/dev/null | grep -i 'iphone\|ipad' | while read line; do echo "     $$line"; done; \
 	else \
-		echo "  ❌ 未检测到 USB 连接的 iOS 设备"; \
+		echo "  ❌ CoreDevice 未检测到设备"; \
 		echo "     请确保: 1) USB 已连接  2) 设备已解锁  3) 已信任此电脑"; \
 	fi
 	@echo ""
@@ -151,107 +152,174 @@ ios-doctor:
 	@echo ""
 	@echo "=========================================="
 
-# === 仅构建 .app (不部署) ===
-ios-device-build:
-	@echo "=== xcodebuild 构建 iOS Debug (真机) ==="
-	@if [ ! -d "$(IOS_PROJ)" ]; then \
-		echo "❌ 项目不存在，请先运行: npx tauri ios init"; \
-		exit 1; \
-	fi
-	cd src-tauri/gen/apple && xcodebuild \
-		-project calculator-tauri.xcodeproj \
-		-scheme $(IOS_SCHEME) \
-		-configuration debug \
-		-destination '$(IOS_DST)' \
-		-derivedDataPath build \
-		build 2>&1 | grep -E '(^\*\*|error:|warning:|BUILD)'
-	@echo "=== 构建完成，.app 位于: src-tauri/gen/apple/build/Build/Products/debug-iphoneos/ ==="
+# === 配对设备 (一次性, 配对后永久生效) ===
+ios-pair:
+	@echo "========== iOS 设备配对 (一次性操作) =========="
+	@echo ""
+	@echo "🔍 当前设备状态:"
+	@xcrun devicectl list devices 2>/dev/null | grep -iE 'iphone|ipad' || echo "   (未检测到设备)"
+	@echo ""
+	@echo "═══════════════════════════════════════════"
+	@echo "  📌 首次配对 (每个设备只需做一次, 约 30 秒):"
+	@echo ""
+	@echo "  1. 打开 Xcode (只需打开, 不需要打开项目)"
+	@echo "     open -a Xcode"
+	@echo ""
+	@echo "  2. 菜单: Window → Devices and Simulators"
+	@echo "     (快捷键: Cmd+Shift+2)"
+	@echo ""
+	@echo "  3. 解锁设备 (iPhone/iPad), 插入 USB 线"
+	@echo ""
+	@echo "  4. Xcode 设备列表会显示该设备"
+	@echo "     等待状态变为「已配对」即可"
+	@echo ""
+	@echo "  5. 关闭 Xcode, 以后永远不需要再打开!"
+	@echo "     make ios-device-deploy 直接可用"
+	@echo "═══════════════════════════════════════════"
+	@echo ""
+	@echo "  💡 CoreDevice 配对是永久的 (不像 lockdown 经常过期)"
+	@echo "     支持多设备: iPhone / iPad 均可"
+	@echo "     默认优先部署 iPhone, 无 iPhone 则用 iPad"
+	@echo "=========================================="
 
-ios-device-build-release:
-	@echo "=== xcodebuild 构建 iOS Release (真机) ==="
-	@if [ ! -d "$(IOS_PROJ)" ]; then \
-		echo "❌ 项目不存在，请先运行: npx tauri ios init"; \
-		exit 1; \
-	fi
-	cd src-tauri/gen/apple && xcodebuild \
-		-project calculator-tauri.xcodeproj \
-		-scheme $(IOS_SCHEME) \
-		-configuration release \
-		-destination '$(IOS_DST)' \
-		-derivedDataPath build \
-		build 2>&1 | grep -E '(^\*\*|error:|warning:|BUILD)'
+# === 仅构建 .app (不部署) ===
+# 注意: 裸 xcodebuild 无法正确触发 Tauri 构建脚本 (需要 dev server addr)
+# 使用 tauri ios build --debug 来正确构建
+ios-device-build:
+	@echo "=== Tauri iOS Debug 构建 ==="
+	npx tauri ios build --debug
 	@echo "=== 构建完成 ==="
 
-# === 一键构建+部署到真机 (★ 推荐日常使用) ===
+ios-device-build-release:
+	@echo "=== Tauri iOS Release 构建 ==="
+	npx tauri ios build
+	@echo "=== 构建完成 ==="
+
+# === 一键构建+部署到真机 (★ devicectl 原生, 推荐) ===
+# 构建: tauri ios build (正确触发所有构建脚本)
+# 部署: devicectl (CoreDevice 原生, 无需 lockdown 配对)
+# 前置条件: iPhone 需在 Xcode 中配对过一次 (一次性, 之后无需 Xcode)
 ios-device-deploy:
 	@echo "========================================"
-	@echo "  iOS 真机部署 (xcodebuild + ios-deploy)"
+	@echo "  iOS 真机部署 (tauri build + devicectl)"
 	@echo "========================================"
-	@# 检查设备
-	@if [ -z "$(IOS_DEVICE_ID)" ]; then \
-		echo "❌ 未检测到 USB 连接的 iOS 设备"; \
-		echo "   请确保: 1) USB 已连接  2) 设备已解锁  3) 已信任此电脑"; \
-		exit 1; \
-	fi
-	@echo "📱 目标设备: $(IOS_DEVICE_ID)"
-	@echo ""
-	@# 构建
-	@echo "🔨 Step 1/2: xcodebuild 构建 (Debug)..."
-	cd src-tauri/gen/apple && xcodebuild \
-		-project calculator-tauri.xcodeproj \
-		-scheme $(IOS_SCHEME) \
-		-configuration debug \
-		-destination '$(IOS_DST)' \
-		-derivedDataPath build \
-		build 2>&1 | grep -E '(^\*\*|error:|warning:|BUILD)'
-	@echo "✅ 构建成功"
-	@echo ""
-	@# 部署
-	@echo "🚀 Step 2/2: ios-deploy 推送到设备..."
-	APP_PATH="$$(find src-tauri/gen/apple/build/Build/Products/debug-iphoneos -name '*.app' -maxdepth 1 | head -1)"; \
-	if [ -z "$$APP_PATH" ]; then \
-		echo "❌ 找不到 .app 产物"; \
+	@# 1. 检测设备 (优先已配对的, iPhone 优先于 iPad)
+	@DEV_LINE=$$(xcrun devicectl list devices 2>/dev/null | grep -iE 'iphone|ipad' | grep -v 'unavailable' | sort -r -t'(' -k2 | head -1); \
+	if [ -z "$$DEV_LINE" ]; then \
+		echo "❌ 未检测到可用的 iOS 设备"; \
+		echo "   请: 1) 解锁设备  2) 插 USB  3) 信任此电脑"; \
 		exit 1; \
 	fi; \
-	echo "   App: $$APP_PATH"; \
-	ios-deploy --bundle "$$APP_PATH" --justlaunch
-	@echo ""
-	@echo "========================================"
-	@echo "  ✅ 部署完成！App 已在设备上启动"
+	DEV_ID=$$(echo "$$DEV_LINE" | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' | head -1); \
+	IS_IPHONE=$$(echo "$$DEV_LINE" | grep -qi 'iphone' && echo '📱' || echo '📟'); \
+	IS_PAIRED=$$(echo "$$DEV_LINE" | grep -q "(paired)" && echo "yes" || echo "no"); \
+	echo "$$IS_IPHONE 目标设备: $$DEV_ID"; \
+	echo "🔐 配对状态: $$([ \"$$IS_PAIRED\" = \"yes\" ] && echo '✅ 已配对' || echo '❌ 未配对 (需一次性配对)')"; \
+	if [ "$$IS_AVAIL" = "no" ]; then \
+		echo "⚠️  设备当前不可用 (可能已锁屏), 请解锁 iPhone 后重试"; \
+		exit 1; \
+	fi; \
+	if [ "$$IS_PAIRED" = "no" ]; then \
+		echo ""; \
+		echo "⚠️  首次需要配对! 只需做一次:"; \
+		echo "   1. 打开 Xcode → Window → Devices and Simulators"; \
+		echo "   2. 解锁 iPhone, 插 USB, Xcode 会自动完成配对"; \
+		echo "   3. 以后就可以永久使用 make ios-device-deploy 了"; \
+		echo ""; \
+		echo "   或者运行 make ios-pair 查看详细步骤"; \
+		exit 1; \
+	fi; \
+	echo ""; \
+	echo "🔨 Step 1/2: Tauri iOS 构建 (Debug)..."; \
+	npx tauri ios build --debug 2>&1 | tail -5; \
+	BUILD_EXIT=$$?; \
+	if [ $$BUILD_EXIT -ne 0 ]; then \
+		echo "❌ 构建失败 (退出码: $$BUILD_EXIT)"; \
+		exit 1; \
+	fi; \
+	echo "✅ 构建成功"; \
+	echo ""; \
+	echo "🚀 Step 2/2: devicectl 安装到设备..."; \
+	IPA_PATH="$$(find $(PROJ_ROOT)/src-tauri/gen/apple/build -name '*.ipa' -maxdepth 3 | head -1)"; \
+	if [ -z "$$IPA_PATH" ]; then \
+		echo "❌ 找不到 IPA, 请确认构建成功"; \
+		exit 1; \
+	fi; \
+	echo "   IPA: $$IPA_PATH"; \
+	xcrun devicectl device install app --device "$$DEV_ID" "$$IPA_PATH"; \
+	echo ""; \
+	echo "========================================"; \
+	echo "  ✅ 部署完成！App 已在设备上"
 	@echo "========================================"
 
 ios-device-deploy-release:
 	@echo "========================================"
-	@echo "  iOS 真机部署 Release (xcodebuild + ios-deploy)"
+	@echo "  iOS 真机部署 Release (tauri build + devicectl)"
 	@echo "========================================"
-	@if [ -z "$(IOS_DEVICE_ID)" ]; then \
-		echo "❌ 未检测到 USB 连接的 iOS 设备"; \
+	@DEV_LINE=$$(xcrun devicectl list devices 2>/dev/null | grep -iE 'iphone|ipad' | grep -v 'unavailable' | sort -r -t'(' -k2 | head -1); \
+	if [ -z "$$DEV_LINE" ]; then \
+		echo "❌ 未检测到可用的 iOS 设备"; \
+		exit 1; \
+	fi; \
+	DEV_ID=$$(echo "$$DEV_LINE" | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' | head -1); \
+	IS_PAIRED=$$(echo "$$DEV_LINE" | grep -q "(paired)" && echo "yes" || echo "no"); \
+	echo "📱 目标设备: $$DEV_ID ($$([ "$$IS_PAIRED" = "yes" ] && echo '已配对' || echo '未配对'))"; \
+	if [ "$$IS_PAIRED" = "no" ]; then \
+	if [ "$$IS_PAIRED" = "no" ]; then \
+		echo "❌ 设备未配对, 请先运行 make ios-pair 完成一次性配对"; \
+		exit 1; \
+	fi; \
+	echo "📱 目标设备: $$DEV_NAME (已配对)"; \
+	echo ""; \
+	echo "🔨 Step 1/2: Tauri iOS 构建 (Release)..."; \
+	npx tauri ios build 2>&1 | tail -5; \
+	BUILD_EXIT=$$?; \
+	if [ $$BUILD_EXIT -ne 0 ]; then \
+		echo "❌ 构建失败"; \
+		exit 1; \
+	fi; \
+	echo "✅ 构建成功"; \
+	echo ""; \
+	echo "🚀 Step 2/2: devicectl 安装到设备..."; \
+	IPA_PATH="$$(find $(PROJ_ROOT)/src-tauri/gen/apple/build -name '*.ipa' -maxdepth 3 | head -1)"; \
+	if [ -z "$$IPA_PATH" ]; then \
+		echo "❌ 找不到 IPA, 请确认构建成功"; \
+		exit 1; \
+	fi; \
+	xcrun devicectl device install app --device "$$DEV_ID" "$$IPA_PATH"; \
+	echo ""; \
+	echo "========================================"; \
+	echo "  ✅ 部署完成！"
+	@echo "========================================"
+
+# === 备用: ios-deploy 部署 (传统 lockdown 方式, 需先配对) ===
+ios-deploy-legacy:
+	@echo "========================================"
+	@echo "  iOS 真机部署 (xcodebuild + ios-deploy)"
+	@echo "  ⚠️  备用方案, 需要 lockdown 配对"
+	@echo "========================================"
+	@if [ -z "$$(ios-deploy --detect 2>/dev/null)" ]; then \
+		echo "❌ ios-deploy 未检测到设备"; \
+		echo "   请先打开 Xcode 完成设备配对, 或使用 make ios-device-deploy"; \
 		exit 1; \
 	fi
-	@echo "📱 目标设备: $(IOS_DEVICE_ID)"
-	@echo ""
-	@echo "🔨 Step 1/2: xcodebuild 构建 (Release)..."
+	@echo "🔨 Step 1/2: xcodebuild 构建..."
 	cd src-tauri/gen/apple && xcodebuild \
 		-project calculator-tauri.xcodeproj \
 		-scheme $(IOS_SCHEME) \
-		-configuration release \
+		-configuration debug \
 		-destination '$(IOS_DST)' \
 		-derivedDataPath build \
 		build 2>&1 | grep -E '(^\*\*|error:|warning:|BUILD)'
 	@echo "✅ 构建成功"
-	@echo ""
-	@echo "🚀 Step 2/2: ios-deploy 推送到设备..."
-	APP_PATH="$$(find src-tauri/gen/apple/build/Build/Products/release-iphoneos -name '*.app' -maxdepth 1 | head -1)"; \
+	@echo "🚀 Step 2/2: ios-deploy 推送..."
+	APP_PATH="$$(find $(PROJ_ROOT)/src-tauri/gen/apple/build/Build/Products/debug-iphoneos -name '*.app' -maxdepth 1 | head -1)"; \
 	if [ -z "$$APP_PATH" ]; then \
 		echo "❌ 找不到 .app 产物"; \
 		exit 1; \
 	fi; \
-	echo "   App: $$APP_PATH"; \
 	ios-deploy --bundle "$$APP_PATH" --justlaunch
-	@echo ""
-	@echo "========================================"
-	@echo "  ✅ 部署完成！"
-	@echo "========================================"
+	@echo "✅ 部署完成"
 
 # === 安装指定 IPA 到真机 ===
 ios-ipa-install:
@@ -259,12 +327,14 @@ ios-ipa-install:
 		echo "用法: make ios-ipa-install IPA=/path/to/app.ipa"; \
 		exit 1; \
 	fi
-	@if [ -z "$(IOS_DEVICE_ID)" ]; then \
-		echo "❌ 未检测到 USB 连接的 iOS 设备"; \
+	@DEV_LINE=$$(xcrun devicectl list devices 2>/dev/null | grep -iE 'iphone|ipad' | grep -v 'unavailable' | head -1); \
+	if [ -z "$$DEV_LINE" ]; then \
+		echo "❌ 未检测到可用的 iOS 设备"; \
 		exit 1; \
-	fi
-	@echo "📦 安装 $(IPA) → $(IOS_DEVICE_ID)..."
-	ios-deploy --bundle "$(IPA)" --justlaunch
+	fi; \
+	DEV_ID=$$(echo "$$DEV_LINE" | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' | head -1); \
+	echo "📦 安装 $(IPA) → $$DEV_ID..."; \
+	xcrun devicectl device install app --device "$$DEV_ID" "$(IPA)"
 
 # 一键发布：先检查再构建各平台
 release: check
