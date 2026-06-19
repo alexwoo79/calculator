@@ -22,7 +22,7 @@ help:
 	@echo "    make build-android    Android Release APK/AAB"
 	@echo "    make build-android-debug  Android Debug (免签名)"
 	@echo "    make build-ios        iOS Release IPA (Archive 导出)"
-	@echo "    make run-ios          直连 iPhone 真机安装运行"
+	@echo "    make run-ios          启动 iOS 真机开发模式 (需 USB 连接 iPhone)"
 	@echo "    make release          一键发布 (check → 桌面 + Android + iOS)"
 	@echo ""
 	@echo "  iOS 专用:"
@@ -82,26 +82,20 @@ build-ios:
 	npm run tauri ios build
 	@echo "=== iOS IPA 已生成 ==="
 
-# iOS 直连真机部署
-# Apple Silicon Mac 上 xcodebuild 命令行始终选 "My Mac" 而非真 iPhone，
-# 需要通过 Xcode GUI 选择设备后 Cmd+R 部署。
-IOS_DEVICE := $(shell xcrun xctrace list devices 2>&1 | grep -i 'iPhone' | grep -v 'Simulator' | head -1 | grep -oE '[0-9A-F]{8}-[0-9A-F]{16}')
-
+# iOS 直连真机部署 — iPhone 通过 USB 连接并解锁
 run-ios:
-	@echo "=== 检测到 iPhone: $(IOS_DEVICE) ==="
-	@echo "打开 Xcode → Product → Destination → 选"吴利利的iPhone" → Cmd+R"
-	open -a Xcode src-tauri/gen/apple/calculator-tauri.xcodeproj
+	@echo "=== 启动 iOS 真机开发模式 ==="
+	npx tauri ios dev
+	@echo "=== iOS 开发模式已启动 ==="
 
-# 仅编译 Rust → iOS arm64（调试用）
+# 手动打开 Xcode（不自动部署），Product → Destination → 选 iPhone → Cmd+R
+ios-xcode:
+	@echo "=== 打开 Xcode iOS 项目 ==="
+	open -a Xcode src-tauri/gen/apple/calculator-tauri.xcodeproj
 ios-rust:
 	@echo "=== 编译 Rust for iOS (aarch64-apple-ios) ==="
 	cd src-tauri && cargo build --target aarch64-apple-ios
 	@echo "=== Rust iOS 编译完成 ==="
-
-# 在 Xcode 中打开 iOS 项目（手动调试/Archive）
-ios-xcode:
-	@echo "=== 打开 Xcode iOS 项目 ==="
-	open -a Xcode src-tauri/gen/apple/calculator-tauri.xcodeproj
 
 # 一键发布：先检查再构建各平台
 release: check

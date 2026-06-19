@@ -3,12 +3,13 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 63;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
 		0B12BEADC7CEAFF6E7AEFA90 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C13CA080767C7F93CCD18B14 /* Assets.xcassets */; };
 		39C773A1CD14FD12065E9398 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FC40CFB13425EC3989287BA /* WebKit.framework */; };
+		4E6F76DC2AD5D383F57193CF /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = B4BF7893D05413A7F25097C5 /* libapp.a */; };
 		4F9F57495F4D390871B5CD59 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0D9B237D7503D6F3D0934D33 /* QuartzCore.framework */; };
 		5701938584643DE2C1857F8C /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2729D95C3A9B8BE2DDA89059 /* Security.framework */; };
 		5EC2C9A47E2399D9558FD322 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 7B0C428CE591CA321DB86814 /* main.mm */; };
@@ -19,7 +20,6 @@
 		B3298130B90337C0F07714EC /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D59C75889F24A3AABAEE9D22 /* Metal.framework */; };
 		BDA204C0567AE7E2F2F6632C /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 6A476851BF0F34C2F21D76B5 /* LaunchScreen.storyboard */; };
 		D00D591DED31EC8BDCABDBC3 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 7596212571AEFF05AC6A2637 /* assets */; };
-		F3F6D8C95CD9115A5E870BC4 /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = 9B1AB70C1977BFBB47170178 /* libapp.a */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,9 +34,9 @@
 		7B0C428CE591CA321DB86814 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
 		833238B338954C63E636B370 /* calculator-tauri_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "calculator-tauri_iOS.entitlements"; sourceTree = "<group>"; };
 		8B8504048FD5FE8DD75BBA8F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		9B1AB70C1977BFBB47170178 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		A837E9EDA63DF92CB0BA68A2 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		AD011098424550D16285E130 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		B4BF7893D05413A7F25097C5 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		C13CA080767C7F93CCD18B14 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D59C75889F24A3AABAEE9D22 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		F09A00552ACBEFA32229F483 /* main.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = main.rs; sourceTree = "<group>"; };
@@ -126,12 +126,12 @@
 			path = Externals;
 			sourceTree = "<group>";
 		};
-		C8CCF2FB294E00B7A9E9EFC0 /* debug */ = {
+		B06FD9C98FAC1B2FD982402D /* release */ = {
 			isa = PBXGroup;
 			children = (
-				9B1AB70C1977BFBB47170178 /* libapp.a */,
+				B4BF7893D05413A7F25097C5 /* libapp.a */,
 			);
-			path = debug;
+			path = release;
 			sourceTree = "<group>";
 		};
 		CAD3F87E3115764429C1C383 /* calculator-tauri */ = {
@@ -146,7 +146,7 @@
 		D53B2574719952CC477CB99E /* arm64 */ = {
 			isa = PBXGroup;
 			children = (
-				C8CCF2FB294E00B7A9E9EFC0 /* debug */,
+				B06FD9C98FAC1B2FD982402D /* release */,
 			);
 			path = arm64;
 			sourceTree = "<group>";
@@ -207,7 +207,6 @@
 				};
 			};
 			buildConfigurationList = C0472E25F84BB53E643D864E /* Build configuration list for PBXProject "calculator-tauri" */;
-			compatibilityVersion = "Xcode 15.3";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -216,6 +215,7 @@
 			);
 			mainGroup = 37AE96C30272DAB8CCC05E48;
 			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
 			productRefGroup = 4555F8232816F87E36C16EAA /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -233,7 +233,7 @@
 				0B12BEADC7CEAFF6E7AEFA90 /* Assets.xcassets in Resources */,
 				BDA204C0567AE7E2F2F6632C /* LaunchScreen.storyboard in Resources */,
 				D00D591DED31EC8BDCABDBC3 /* assets in Resources */,
-				F3F6D8C95CD9115A5E870BC4 /* libapp.a in Resources */,
+				4E6F76DC2AD5D383F57193CF /* libapp.a in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -289,6 +289,7 @@
 					"\".\"",
 				);
 				INFOPLIST_FILE = "calculator-tauri_iOS/Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 14;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -312,6 +313,7 @@
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
+				DEVELOPMENT_TEAM = "3VDFB28JX6";
 			};
 			name = debug;
 		};
@@ -329,6 +331,7 @@
 					"\".\"",
 				);
 				INFOPLIST_FILE = "calculator-tauri_iOS/Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 14;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -352,6 +355,7 @@
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
+				DEVELOPMENT_TEAM = "3VDFB28JX6";
 			};
 			name = release;
 		};
@@ -359,7 +363,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -418,7 +421,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";

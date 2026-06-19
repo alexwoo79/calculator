@@ -18,6 +18,13 @@
 	<string>1.0.0</string>
 	<key>CFBundleVersion</key>
 	<string>1.0.0</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>此应用需要访问本地网络以连接开发服务器</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

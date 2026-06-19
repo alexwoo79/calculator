@@ -32,6 +32,25 @@ const showStats = ref(false);
 const showPace = ref(true);
 const paceHints: Set<string> = new Set(['km', 'Hour', 'Min', 'Second']);
 
+// ===== 左右滑动切换面板 =====
+const swipeStartX = ref(0);
+const swipeStartY = ref(0);
+
+function onTouchStart(e: TouchEvent): void {
+    swipeStartX.value = e.touches[0].clientX;
+    swipeStartY.value = e.touches[0].clientY;
+}
+
+function onTouchEnd(e: TouchEvent): void {
+    const dx = e.changedTouches[0].clientX - swipeStartX.value;
+    const dy = e.changedTouches[0].clientY - swipeStartY.value;
+    // 仅水平滑动超过 50px 且大于垂直滑动时触发
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        if (dx < 0) showStats.value = true;   // 左滑 → 详情
+        else showStats.value = false;           // 右滑 → 计算器
+    }
+}
+
 // ===== 历史记录滚动 =====
 const historyIdx = ref(-1);   // -1 = 不在浏览中，0=最新，1=次新...
 const savedInput = ref("");   // 进入历史浏览前的输入暂存
@@ -304,7 +323,7 @@ function calcKeyTap(key: string): void {
     }
 }
 
-function calcFuncTap(_fn: string): void {}
+function calcFuncTap(_fn: string): void { }
 
 function calcClear(): void {
     playClick();
@@ -345,6 +364,7 @@ const hintTooltips: Record<string, string> = {
     "hex2dec(x)": "十六进制→十进制", "bin2dec(x)": "二进制→十进制",
     "pi": "圆周率 π≈3.1416", "e": "自然常数 e≈2.7183",
     "1/x": "倒数", "x^2": "平方", "x^3": "立方",
+    "x": "变量 x",
     "km": "千米 (=1) · 距离单位", "Hour": "小时 (=1) · 时间单位",
     "Min": "分钟 (=1/60h) · 时间单位", "Second": "秒 (=1/3600h) · 简写 sec",
 };
@@ -392,9 +412,19 @@ const solveHints: string[] = [
     "ax^3+bx^2+cx+d=0", "a/x+b=c", "sqrt(ax+b)=c",
     "a^x=b", "ln(x)=a", "abs(x)=a",
     "sin(x)=a", "cos(x)=a", "tan(x)=a",
+    "1/x", "x^2", "x^3", "x",
 ];
 
+// 方程模式下仅用于输入变量的辅助按钮（非计算功能）
+const inputHelperHints = new Set(['1/x', 'x', 'x^2', 'x^3']);
+
 const HINT_ROW_COUNT = 6;
+
+const emptyMessage = computed(() =>
+    calcMode.value === 'solve'
+        ? 'Enter equation and press Enter to solve'
+        : 'Enter data to see statistics'
+);
 
 const displayHints = computed(() => {
     const cols = calcMode.value === 'solve' ? 4 : 5;
@@ -587,6 +617,12 @@ function insertHint(hint: string): void {
         inputText.value = hint;
         return;
     }
+    // 方程模式下的辅助输入按钮（1/x, x, x^2, x^3）仅插入字面文本，不做计算转换
+    if (calcMode.value === 'solve' && inputHelperHints.has(hint)) {
+        const trimmed = inputText.value.trim();
+        inputText.value = trimmed ? trimmed + ' ' + hint : hint;
+        return;
+    }
     const trimmed = inputText.value.trim();
     const isNumber = trimmed !== "" && !isNaN(Number(trimmed)) && isFinite(Number(trimmed));
 
@@ -675,7 +711,7 @@ function handleKeyboardSubmit(): void {
         return;
     }
     if (lastResultValue.value !== null && !/^[+\-*/^%]/.test(input)) {
-        if (tokens.length > 1 || nums.length > 1) {
+        if (rawTokens.length > 1 || nums.length > 1) {
             nums.unshift(lastResultValue.value);
             expr = String(lastResultValue.value) + ', ' + input;
         }
@@ -709,7 +745,7 @@ function addHistory(source: string, input: string, nums: number[]): void {
 <template>
     <div class="page">
         <div class="drag-bar"></div>
-        <div class="calc-dual">
+        <div class="calc-dual" @touchstart.passive="onTouchStart" @touchend.passive="onTouchEnd">
             <!-- ====== 左侧：计算器 ====== -->
             <div class="calc-body" :class="{ 'panel-hidden': showStats }">
                 <div class="calc-top-bar">
@@ -727,7 +763,8 @@ function addHistory(source: string, input: string, nums: number[]): void {
                         <span class="status-mem" v-if="history.length">M</span>
                         <span class="status-bat">▮▮▮</span>
                     </div>
-                    <div class="screen-expr" :class="{ 'screen-hidden': !(displayResult && lastInput) && calcMode !== 'solve' }">
+                    <div class="screen-expr"
+                        :class="{ 'screen-hidden': !(displayResult && lastInput) && calcMode !== 'solve' }">
                         {{ lastInput || '\u00A0' }}
                     </div>
                     <div class="screen-input">
@@ -737,8 +774,10 @@ function addHistory(source: string, input: string, nums: number[]): void {
                     </div>
                     <div class="screen-output">
                         <div class="output-row" ref="outputRow">
-                            <span v-show="displayResult" ref="outputValueRef" class="output-value" :style="{ fontSize: outputFontSize + 'px' }">{{ displayResult }}<span v-if="resultUnit"
-                                    class="output-unit" :style="{ fontSize: Math.max(outputFontSize * 0.7, 9) + 'px' }"> {{ resultUnit }}</span></span>
+                            <span v-show="displayResult" ref="outputValueRef" class="output-value"
+                                :style="{ fontSize: outputFontSize + 'px' }">{{ displayResult }}<span v-if="resultUnit"
+                                    class="output-unit" :style="{ fontSize: Math.max(outputFontSize * 0.7, 9) + 'px' }">
+                                    {{ resultUnit }}</span></span>
                             <span v-show="!displayResult && previewResult" class="output-value dim">{{
                                 previewResult?.value || '\u00A0' }}</span>
                             <span v-show="displayResult && paceText" class="output-pace" @click="showPace = !showPace"
@@ -781,13 +820,12 @@ function addHistory(source: string, input: string, nums: number[]): void {
                 <!-- ===== 预设函数矩阵（动态，固定高度）===== -->
                 <div class="calc-hints-area" :class="{ 'hints-4col': calcMode === 'solve' }">
                     <template v-for="(h, i) in displayHints" :key="i">
-                        <span v-if="h" class="hint-tag"
-                            :class="{
-                                'hint-pace': paceHints.has(h),
-                                'hint-solve': calcMode === 'solve',
-                            }"
-                            @click="insertHint(h)"
-                            @mouseenter="showTooltip($event, hintTooltips[h] || h)" @mouseleave="hideTooltip">{{ h }}</span>
+                        <span v-if="h" class="hint-tag" :class="{
+                            'hint-pace': paceHints.has(h),
+                            'hint-solve': calcMode === 'solve' && !inputHelperHints.has(h),
+                            'hint-input': calcMode === 'solve' && inputHelperHints.has(h),
+                        }" @click="insertHint(h)" @mouseenter="showTooltip($event, hintTooltips[h] || h)"
+                            @mouseleave="hideTooltip">{{ h }}</span>
                         <span v-else class="hint-tag hint-empty"></span>
                     </template>
                 </div>
@@ -813,7 +851,8 @@ function addHistory(source: string, input: string, nums: number[]): void {
                     <div class="calc-bottom-row" :class="{ 'has-detail': stats }">
                         <button class="calc-btn calc-clear" :class="{ 'calc-pressed': activeKey === 'AC' }"
                             @click="calcClear">AC</button>
-                        <button v-if="calcMode === 'standard'" class="calc-btn calc-equals" :class="{ 'calc-pressed': activeKey === '=' }"
+                        <button v-if="calcMode === 'standard'" class="calc-btn calc-equals"
+                            :class="{ 'calc-pressed': activeKey === '=' }"
                             @click="playClick(); handleKeyboardSubmit()">=</button>
                         <button v-if="calcMode === 'solve'" class="calc-btn calc-solve-btn"
                             @click="playClick(); handleKeyboardSubmit()">SOLVE</button>
@@ -825,7 +864,8 @@ function addHistory(source: string, input: string, nums: number[]): void {
             <!-- ====== 右侧：统计信息面板 ====== -->
             <div class="calc-info" :class="{ 'panel-hidden': !showStats }">
                 <div class="info-top-bar">
-                    <span class="info-brand">{{ calcMode === 'solve' && solveSteps.length > 0 ? 'SOLVE' : 'STAT' }}</span>
+                    <span class="info-brand">{{ calcMode === 'solve' && solveSteps.length > 0 ? 'SOLVE' : 'STAT'
+                        }}</span>
                     <button class="info-back-btn" @click="showStats = false">← 返回</button>
                 </div>
                 <div class="info-lcd">
@@ -840,14 +880,16 @@ function addHistory(source: string, input: string, nums: number[]): void {
                             </div>
                         </div>
                         <div class="solve-actions">
-                            <button class="info-clear-btn info-clear-sm" @click="solveSteps = []; solveResult = null; showStats = false">清除</button>
+                            <button class="info-clear-btn info-clear-sm"
+                                @click="solveSteps = []; solveResult = null; showStats = false">清除</button>
                             <button class="info-back-btn" @click="showStats = false">← 返回</button>
                         </div>
                     </div>
 
-                    <div v-if="!stats && history.length === 0 && !(calcMode === 'solve' && solveSteps.length > 0)" class="info-empty">
+                    <div v-if="!stats && history.length === 0 && !(calcMode === 'solve' && solveSteps.length > 0)"
+                        class="info-empty">
                         <span class="info-empty-icon">{{ calcMode === 'solve' ? '🔢' : '📊' }}</span>
-                        <p>{{ calcMode === 'solve' ? 'Enter equation, press Enter to solve' : 'Enter data to see statistics' }}</p>
+                        <p>{{ emptyMessage }}</p>
                     </div>
 
                     <div v-if="stats && !(calcMode === 'solve' && solveSteps.length > 0)" class="info-stats">
@@ -889,7 +931,8 @@ function addHistory(source: string, input: string, nums: number[]): void {
                         <button class="info-clear-btn" @click="clearResults">清除结果</button>
                     </div>
 
-                    <div class="info-grade" v-if="stats && rankedData.length > 0 && !(calcMode === 'solve' && solveSteps.length > 0)">
+                    <div class="info-grade"
+                        v-if="stats && rankedData.length > 0 && !(calcMode === 'solve' && solveSteps.length > 0)">
                         <div class="info-title" @click="showGrade = !showGrade" style="cursor:pointer">
                             等级评定 {{ showGrade ? '▾' : '▸' }}
                         </div>
@@ -931,7 +974,8 @@ function addHistory(source: string, input: string, nums: number[]): void {
                         </div>
                     </div>
 
-                    <div v-if="history.length > 0 && !(calcMode === 'solve' && solveSteps.length > 0)" class="info-history">
+                    <div v-if="history.length > 0 && !(calcMode === 'solve' && solveSteps.length > 0)"
+                        class="info-history">
                         <div class="info-title">历史记录</div>
                         <div class="history-list">
                             <div v-for="item in history" :key="item.id" class="history-item"
@@ -945,6 +989,11 @@ function addHistory(source: string, input: string, nums: number[]): void {
                         <button class="info-back-btn-bottom" @click="showStats = false">← 返回</button>
                     </div>
                 </div>
+            </div>
+            <!-- 滑动指示点（仅移动端显示）-->
+            <div class="swipe-hint">
+                <span class="swipe-dot" :class="{ active: !showStats }" @click="showStats = false"></span>
+                <span class="swipe-dot" :class="{ active: showStats }" @click="showStats = true"></span>
             </div>
         </div>
         <!-- 全局 tooltip，绕过 overflow:hidden -->
@@ -988,6 +1037,11 @@ function addHistory(source: string, input: string, nums: number[]): void {
     display: flex;
     justify-content: center;
     align-items: flex-start;
+}
+
+/* 滑动指示点（桌面端隐藏，移动端显示）*/
+.swipe-hint {
+    display: none;
 }
 
 /* ---- 顶部品牌栏 ---- */
@@ -1246,10 +1300,14 @@ function addHistory(source: string, input: string, nums: number[]): void {
     box-shadow: 0 3px 0 #6b9df0, 0 4px 6px rgba(0, 0, 0, .12);
     border: 1px solid #3570c0;
 }
-.mode-standard:hover { filter: brightness(1.08); }
+
+.mode-standard:hover {
+    filter: brightness(1.08);
+}
+
 .mode-standard.active {
     background: linear-gradient(180deg, #7aadff 0%, #5b8def 40%, #4a7de0 100%);
-    box-shadow: 0 1px 0 #6b9df0, 0 3px 8px rgba(74, 125, 224, .5), inset 0 1px 2px rgba(255,255,255,.2);
+    box-shadow: 0 1px 0 #6b9df0, 0 3px 8px rgba(74, 125, 224, .5), inset 0 1px 2px rgba(255, 255, 255, .2);
     transform: translateY(2px);
 }
 
@@ -1260,10 +1318,14 @@ function addHistory(source: string, input: string, nums: number[]): void {
     box-shadow: 0 3px 0 #5dbf9f, 0 4px 6px rgba(0, 0, 0, .12);
     border: 1px solid #258060;
 }
-.mode-solve:hover { filter: brightness(1.08); }
+
+.mode-solve:hover {
+    filter: brightness(1.08);
+}
+
 .mode-solve.active {
     background: linear-gradient(180deg, #6dd4aa 0%, #4caf8e 40%, #3d9e7a 100%);
-    box-shadow: 0 1px 0 #5dbf9f, 0 3px 8px rgba(61, 158, 122, .5), inset 0 1px 2px rgba(255,255,255,.2);
+    box-shadow: 0 1px 0 #5dbf9f, 0 3px 8px rgba(61, 158, 122, .5), inset 0 1px 2px rgba(255, 255, 255, .2);
     transform: translateY(2px);
 }
 
@@ -1274,10 +1336,14 @@ function addHistory(source: string, input: string, nums: number[]): void {
     box-shadow: 0 3px 0 #f5b565, 0 4px 6px rgba(0, 0, 0, .12);
     border: 1px solid #c07520;
 }
-.mode-deg:hover { filter: brightness(1.08); }
+
+.mode-deg:hover {
+    filter: brightness(1.08);
+}
+
 .mode-deg.active {
     background: linear-gradient(180deg, #f5b870 0%, #f0a050 40%, #e09040 100%);
-    box-shadow: 0 1px 0 #f5b565, 0 3px 8px rgba(240, 160, 80, .5), inset 0 1px 2px rgba(255,255,255,.2);
+    box-shadow: 0 1px 0 #f5b565, 0 3px 8px rgba(240, 160, 80, .5), inset 0 1px 2px rgba(255, 255, 255, .2);
     transform: translateY(2px);
 }
 
@@ -1288,10 +1354,14 @@ function addHistory(source: string, input: string, nums: number[]): void {
     box-shadow: 0 3px 0 #9c7dd0, 0 4px 6px rgba(0, 0, 0, .12);
     border: 1px solid #5a3890;
 }
-.mode-inv:hover { filter: brightness(1.08); }
+
+.mode-inv:hover {
+    filter: brightness(1.08);
+}
+
 .mode-inv.active {
     background: linear-gradient(180deg, #a080d8 0%, #8b6cc0 40%, #7a5bb0 100%);
-    box-shadow: 0 1px 0 #9c7dd0, 0 3px 8px rgba(138, 108, 192, .5), inset 0 1px 2px rgba(255,255,255,.2);
+    box-shadow: 0 1px 0 #9c7dd0, 0 3px 8px rgba(138, 108, 192, .5), inset 0 1px 2px rgba(255, 255, 255, .2);
     transform: translateY(2px);
 }
 
@@ -1300,6 +1370,7 @@ function addHistory(source: string, input: string, nums: number[]): void {
     color: #f0a050;
     font-weight: 700;
 }
+
 .status-inv {
     color: #8b6cc0;
     font-weight: 700;
@@ -1324,6 +1395,27 @@ function addHistory(source: string, input: string, nums: number[]): void {
     filter: brightness(1.15) !important;
     border-color: #6aaa7a !important;
     color: #c0f0d0 !important;
+}
+
+/* 方程模式下仅输入变量的辅助按钮 - 银色（区别于计算功能的绿色）*/
+.hint-input {
+    background: linear-gradient(180deg, #5a5f68 0%, #4a4f58 40%, #3a3f48 100%) !important;
+    border-color: #6a6f78 !important;
+    color: #c8cdd4 !important;
+    font-size: 12px !important;
+    letter-spacing: 0 !important;
+    padding: 0 1px !important;
+    box-shadow:
+        0 3px 0 #7a7f88,
+        0 4px 8px rgba(0, 0, 0, .2),
+        inset 0 1px 1px rgba(200, 205, 212, .15),
+        inset 0 -1px 2px rgba(0, 0, 0, .15) !important;
+}
+
+.hint-input:hover {
+    filter: brightness(1.15) !important;
+    border-color: #8a8f98 !important;
+    color: #e0e4e8 !important;
 }
 
 /* ---- 预设函数矩阵 ---- */
@@ -2591,18 +2683,28 @@ tr.grade-D .col-grade {
         display: flex;
         justify-content: center;
         gap: 8px;
-        padding: 8px 0 0;
+        position: fixed;
+        bottom: calc(env(safe-area-inset-bottom, 0px) + 6px);
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 200;
+        padding: 6px 12px;
+        background: rgba(45, 52, 54, .85);
+        border-radius: 12px;
+        backdrop-filter: blur(4px);
     }
 
     .swipe-dot {
         width: 6px;
         height: 6px;
         border-radius: 50%;
-        background: #c0c4c8;
+        background: #6a7074;
+        transition: all .25s;
+        cursor: pointer;
     }
 
     .swipe-dot.active {
-        background: #4a5054;
+        background: #d5d8dc;
         width: 18px;
         border-radius: 3px;
     }
