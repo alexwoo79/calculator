@@ -102,5 +102,3 @@ pnpm-debug.log*
 # Misc
 # ====================
 *.tgz
-node_modules
-node_modules
