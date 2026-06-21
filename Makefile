@@ -58,6 +58,9 @@ dev:
 
 dev-android:
 	npm run tauri android dev
+ios-rust:
+	cd src-tauri && cargo build --target aarch64-apple-ios --release -p calculator-tauri
+
 build:
 	npm run tauri build
 
@@ -86,8 +89,10 @@ PROJ_ROOT   := $(shell pwd)
 # 部署: devicectl
 ios-device-deploy:
 	@echo "========================================"
-	@echo "  iOS 真机部署 (tauri build + devicectl)"
+	@echo "  iOS 真机部署 (xcodegen + xcodebuild + devicectl)"
 	@echo "========================================"
+	@DEV_LINE=$$(xcrun devicectl list devices 2>/dev/null | grep -iE 'iphone|ipad' | grep -v 'unavailable' | sort -r -t'(' -k2 | head -1); \
+	if [ -z "$$DEV_LINE" ]; then \
 		echo "❌ 未检测到可用的 iOS 设备"; \
 		echo "   请: 1) 解锁设备  2) 插 USB  3) 信任此电脑"; \
 		exit 1; \
@@ -96,11 +101,7 @@ ios-device-deploy:
 	IS_IPHONE=$$(echo "$$DEV_LINE" | grep -qi 'iphone' && echo '📱' || echo '📟'); \
 	IS_PAIRED=$$(echo "$$DEV_LINE" | grep -q "(paired)" && echo "yes" || echo "no"); \
 	echo "$$IS_IPHONE 目标设备: $$DEV_ID"; \
-	echo "🔐 配对状态: $$([ \"$$IS_PAIRED\" = \"yes\" ] && echo '✅ 已配对' || echo '❌ 未配对 (需一次性配对)')"; \
-	if [ "$$IS_AVAIL" = "no" ]; then \
-		echo "⚠️  设备当前不可用 (可能已锁屏), 请解锁 iPhone 后重试"; \
-		exit 1; \
-	fi; \
+	echo "🔐 配对状态: $$([ \"$$IS_PAIRED\" = \"yes\" ] && echo '✅ 已配对' || echo '❌ 未配对')"; \
 	if [ "$$IS_PAIRED" = "no" ]; then \
 		echo ""; \
 		echo "⚠️  首次需要配对! 只需做一次:"; \
@@ -111,27 +112,42 @@ ios-device-deploy:
 		exit 1; \
 	fi; \
 	echo ""; \
-	echo "🔨 Step 1/2: Tauri iOS 构建 (Debug)..."; \
-	npx tauri ios build --debug 2>&1 | tail -5; \
+	echo "🔨 Step 1/2: Tauri iOS 构建 (含前端+Rust+原生)..."; \
+	cd $(PROJ_ROOT) && npx tauri ios build --debug 2>&1 | tail -15; \
 	BUILD_EXIT=$$?; \
 	if [ $$BUILD_EXIT -ne 0 ]; then \
-		echo "❌ 构建失败 (退出码: $$BUILD_EXIT)"; \
-		exit 1; \
+		echo "❌ tauri ios build 失败 (退出码: $$BUILD_EXIT)"; \
+		echo "尝试 xcodebuild 备用方案..."; \
+		cd $(PROJ_ROOT)/src-tauri/gen/apple && \
+		xcodebuild -project calculator-tauri.xcodeproj \
+			-scheme calculator-tauri_iOS \
+			-configuration Debug \
+			-derivedDataPath build/DerivedData \
+			-allowProvisioningUpdates \
+			ENABLE_PREVIEWS=NO \
+			build 2>&1 | tail -15; \
+		BUILD_EXIT=$$?; \
+		if [ $$BUILD_EXIT -ne 0 ]; then \
+			echo "❌ xcodebuild 也失败"; \
+			exit 1; \
+		fi; \
 	fi; \
 	echo "✅ 构建成功"; \
 	echo ""; \
-	echo "🚀 Step 2/2: devicectl 安装到设备..."; \
-	IPA_PATH="$$(find $(PROJ_ROOT)/src-tauri/gen/apple/build -name '*.ipa' -maxdepth 3 | head -1)"; \
-	if [ -z "$$IPA_PATH" ]; then \
-		echo "❌ 找不到 IPA, 请确认构建成功"; \
+	echo "🚀 安装到设备..."; \
+	APP_PATH="$$(find $(PROJ_ROOT)/src-tauri/gen/apple/build -name '*.ipa' -maxdepth 3 2>/dev/null | head -1)"; \
+	if [ -z "$$APP_PATH" ]; then \
+		APP_PATH="$$(find $(PROJ_ROOT)/src-tauri/gen/apple/build/DerivedData/Build/Products -name '*.app' -maxdepth 3 -type d 2>/dev/null | head -1)"; \
+	fi; \
+	if [ -z "$$APP_PATH" ]; then \
+		echo "❌ 找不到构建产物"; \
 		exit 1; \
 	fi; \
-	echo "   IPA: $$IPA_PATH"; \
-	xcrun devicectl device install app --device "$$DEV_ID" "$$IPA_PATH"; \
+	echo "   产物: $$APP_PATH"; \
+	xcrun devicectl device install app --device "$$DEV_ID" "$$APP_PATH"; \
 	echo ""; \
 	echo "========================================"; \
 	echo "  ✅ 部署完成！App 已在设备上"
-	@echo "========================================"
 
 ios-device-deploy-release:
 	@echo "========================================"
@@ -146,10 +162,15 @@ ios-device-deploy-release:
 	IS_PAIRED=$$(echo "$$DEV_LINE" | grep -q "(paired)" && echo "yes" || echo "no"); \
 	echo "📱 目标设备: $$DEV_ID ($$([ "$$IS_PAIRED" = "yes" ] && echo '已配对' || echo '未配对'))"; \
 	if [ "$$IS_PAIRED" = "no" ]; then \
-	if [ "$$IS_PAIRED" = "no" ]; then \
+		echo ""; \
+		echo "⚠️  首次需要配对! 只需做一次:"; \
+		echo "   1. 打开 Xcode → Window → Devices and Simulators"; \
+		echo "   2. 解锁 iPhone, 插 USB, Xcode 会自动完成配对"; \
+		echo "   3. 以后就可以永久使用 make"; \
+		echo ""; \
 		exit 1; \
 	fi; \
-	echo "📱 目标设备: $$DEV_NAME (已配对)"; \
+	echo "📱 设备已配对，开始构建..."; \
 	echo ""; \
 	echo "🔨 Step 1/2: Tauri iOS 构建 (Release)..."; \
 	npx tauri ios build 2>&1 | tail -5; \

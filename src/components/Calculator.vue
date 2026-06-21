@@ -1311,7 +1311,7 @@ function handleKeyboardSubmit(): void {
             lastInput.value = input;
             lastResultValue.value = numbers.value.length > 0 ? numbers.value[0] : null;
             addHistory("SOLVE", input, numbers.value.filter(n => isFinite(n)));
-            inputText.value = "0";
+            inputText.value = "";
             return;
         } catch (err: any) {
             errorMsg.value = err.message || String(err);

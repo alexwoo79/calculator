@@ -13,6 +13,7 @@ settingGroups:
       PRODUCT_NAME: Any Calculator
       PRODUCT_BUNDLE_IDENTIFIER: com.alexwoo.calculator
       DEVELOPMENT_TEAM: 3VDFB28JX6
+      ENABLE_PREVIEWS: NO
 targetTemplates:
   app:
     type: application
@@ -32,7 +33,7 @@ targets:
       - path: Sources
       - path: Assets.xcassets
       - path: Externals
-      - path: calculator-tauri_iOS
+      - path: calculator-tauri_iOS/calculator-tauri_iOS.entitlements
       - path: assets
         buildPhase: resources
         type: folder

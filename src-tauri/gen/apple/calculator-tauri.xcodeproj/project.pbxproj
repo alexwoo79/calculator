@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		0B12BEADC7CEAFF6E7AEFA90 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C13CA080767C7F93CCD18B14 /* Assets.xcassets */; };
 		39C773A1CD14FD12065E9398 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FC40CFB13425EC3989287BA /* WebKit.framework */; };
-		4E6F76DC2AD5D383F57193CF /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = B4BF7893D05413A7F25097C5 /* libapp.a */; };
 		4F9F57495F4D390871B5CD59 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0D9B237D7503D6F3D0934D33 /* QuartzCore.framework */; };
 		5701938584643DE2C1857F8C /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2729D95C3A9B8BE2DDA89059 /* Security.framework */; };
 		5EC2C9A47E2399D9558FD322 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 7B0C428CE591CA321DB86814 /* main.mm */; };
@@ -20,26 +19,26 @@
 		B3298130B90337C0F07714EC /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D59C75889F24A3AABAEE9D22 /* Metal.framework */; };
 		BDA204C0567AE7E2F2F6632C /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 6A476851BF0F34C2F21D76B5 /* LaunchScreen.storyboard */; };
 		D00D591DED31EC8BDCABDBC3 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 7596212571AEFF05AC6A2637 /* assets */; };
+		F3F6D8C95CD9115A5E870BC4 /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = 9B1AB70C1977BFBB47170178 /* libapp.a */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		0D9B237D7503D6F3D0934D33 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		1FC40CFB13425EC3989287BA /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		2729D95C3A9B8BE2DDA89059 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
-		4EF54125466D7AF357BE7642 /* Any Calculator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Any Calculator.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		5820ACE41683329B1C219B3A /* lib.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = lib.rs; sourceTree = "<group>"; };
+		4EF54125466D7AF357BE7642 /* calculator-tauri_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "calculator-tauri_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		5820ACE41683329B1C219B3A /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
 		6A476851BF0F34C2F21D76B5 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		6CBF1CDEFEB92625EBFAA10B /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
 		7596212571AEFF05AC6A2637 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
 		7B0C428CE591CA321DB86814 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
 		833238B338954C63E636B370 /* calculator-tauri_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "calculator-tauri_iOS.entitlements"; sourceTree = "<group>"; };
-		8B8504048FD5FE8DD75BBA8F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		9B1AB70C1977BFBB47170178 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		A837E9EDA63DF92CB0BA68A2 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		AD011098424550D16285E130 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
-		B4BF7893D05413A7F25097C5 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		C13CA080767C7F93CCD18B14 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D59C75889F24A3AABAEE9D22 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
-		F09A00552ACBEFA32229F483 /* main.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = main.rs; sourceTree = "<group>"; };
+		F09A00552ACBEFA32229F483 /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
 		FB723EBEBB5E9EF11D2EB9B0 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		FDBFD3E3A9B28261A14596A0 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
@@ -89,7 +88,7 @@
 		4555F8232816F87E36C16EAA /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				4EF54125466D7AF357BE7642 /* Any Calculator.app */,
+				4EF54125466D7AF357BE7642 /* calculator-tauri_iOS.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -113,7 +112,6 @@
 			isa = PBXGroup;
 			children = (
 				833238B338954C63E636B370 /* calculator-tauri_iOS.entitlements */,
-				8B8504048FD5FE8DD75BBA8F /* Info.plist */,
 			);
 			path = "calculator-tauri_iOS";
 			sourceTree = "<group>";
@@ -126,12 +124,12 @@
 			path = Externals;
 			sourceTree = "<group>";
 		};
-		B06FD9C98FAC1B2FD982402D /* release */ = {
+		C8CCF2FB294E00B7A9E9EFC0 /* debug */ = {
 			isa = PBXGroup;
 			children = (
-				B4BF7893D05413A7F25097C5 /* libapp.a */,
+				9B1AB70C1977BFBB47170178 /* libapp.a */,
 			);
-			path = release;
+			path = debug;
 			sourceTree = "<group>";
 		};
 		CAD3F87E3115764429C1C383 /* calculator-tauri */ = {
@@ -146,7 +144,7 @@
 		D53B2574719952CC477CB99E /* arm64 */ = {
 			isa = PBXGroup;
 			children = (
-				B06FD9C98FAC1B2FD982402D /* release */,
+				C8CCF2FB294E00B7A9E9EFC0 /* debug */,
 			);
 			path = arm64;
 			sourceTree = "<group>";
@@ -169,6 +167,13 @@
 			path = Sources;
 			sourceTree = "<group>";
 		};
+		"TEMP_A5085E35-98DE-4B6E-8E68-303E615B1175" /* x86_64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = x86_64;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -189,7 +194,7 @@
 			packageProductDependencies = (
 			);
 			productName = "calculator-tauri_iOS";
-			productReference = 4EF54125466D7AF357BE7642 /* Any Calculator.app */;
+			productReference = 4EF54125466D7AF357BE7642 /* calculator-tauri_iOS.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -199,7 +204,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 2650;
+				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					059AD6EAFE47C7F0968BB23F = {
 						DevelopmentTeam = 3VDFB28JX6;
@@ -233,7 +238,7 @@
 				0B12BEADC7CEAFF6E7AEFA90 /* Assets.xcassets in Resources */,
 				BDA204C0567AE7E2F2F6632C /* LaunchScreen.storyboard in Resources */,
 				D00D591DED31EC8BDCABDBC3 /* assets in Resources */,
-				4E6F76DC2AD5D383F57193CF /* libapp.a in Resources */,
+				F3F6D8C95CD9115A5E870BC4 /* libapp.a in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -278,84 +283,66 @@
 		32EE6B8B539C425769673A7C /* debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = "calculator-tauri_iOS/calculator-tauri_iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = "3VDFB28JX6";
 				ENABLE_BITCODE = NO;
+				ENABLE_PREVIEWS = NO;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"\".\"",
 				);
-				INFOPLIST_FILE = "calculator-tauri_iOS/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 14;
+				INFOPLIST_FILE = "calculator-tauri_iOS/calculator-tauri_iOS.entitlements";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				"LIBRARY_SEARCH_PATHS[arch=arm64]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION)",
-					"$(SDKROOT)/usr/lib/swift",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
-				);
-				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION)",
-					"$(SDKROOT)/usr/lib/swift",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
-				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = com.alexwoo.calculator;
 				PRODUCT_NAME = "Any Calculator";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
-				DEVELOPMENT_TEAM = "3VDFB28JX6";
 			};
 			name = debug;
 		};
 		79A9DAB26BC82A091063290C /* release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = "calculator-tauri_iOS/calculator-tauri_iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = "3VDFB28JX6";
 				ENABLE_BITCODE = NO;
+				ENABLE_PREVIEWS = NO;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"\".\"",
 				);
-				INFOPLIST_FILE = "calculator-tauri_iOS/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 14;
+				INFOPLIST_FILE = "calculator-tauri_iOS/calculator-tauri_iOS.entitlements";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				"LIBRARY_SEARCH_PATHS[arch=arm64]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION)",
-					"$(SDKROOT)/usr/lib/swift",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
-				);
-				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION)",
-					"$(SDKROOT)/usr/lib/swift",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
-					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
-				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = com.alexwoo.calculator;
 				PRODUCT_NAME = "Any Calculator";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
-				DEVELOPMENT_TEAM = "3VDFB28JX6";
 			};
 			name = release;
 		};
@@ -394,7 +381,6 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = 3VDFB28JX6;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -410,7 +396,6 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
@@ -452,7 +437,6 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = 3VDFB28JX6;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -475,7 +459,6 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
