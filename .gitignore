@@ -17,6 +17,8 @@ src-tauri/target/
 # ====================
 # Android (Tauri)
 # ====================
+# Android SDK 命令行工具
+src-tauri/cmdline-tools/
 # APK/AAB 构建产物
 src-tauri/gen/android/app/build/
 src-tauri/gen/android/buildSrc/build/
