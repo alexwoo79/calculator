@@ -31,12 +31,23 @@ function formatCoeff2(v: number): string {
 }
 
 function subNum(n: number): string {
-    const subs = ['₀', '₁', '₂', '₃', '₄', '₅'];
-    return subs[n] || String(n);
+    const subs = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'];
+    return String(n).split('').map(c => subs[+c] || c).join('');
+}
+
+// —— KaTeX 数学格式化辅助 —— */
+function sqrtL(expr: string): string {
+    return `\\sqrt{${expr}}`;
+}
+function cbrtL(expr: string): string {
+    return `\\sqrt[3]{${expr}}`;
+}
+function frac(num: string, den: string): string {
+    return `\\dfrac{${num}}{${den}}`;
 }
 
 // —— 多项式格式化 ——
-export function fmtPoly(coeffs: number[], vars: string[] = ['x^3', 'x^2', 'x', '']): string {
+export function fmtPoly(coeffs: number[], vars: string[] = ['x³', 'x²', 'x', '']): string {
     const terms: string[] = [];
     for (let i = 0; i < coeffs.length; i++) {
         const v = coeffs[i];
@@ -97,76 +108,80 @@ function parsePolynomial(expr: string): PolyCoeffs {
 // —— 各类型求解器 ——
 function solveLinear(b: number, c: number, steps: SolveStep[]): SolveResult {
     const eqText = fmtPoly([b, c], ['x', '']);
-    steps.push({ text: `一次方程: ${eqText} = 0`, hl: true });
+    steps.push({ text: `识别方程：$${eqText} = 0$（$a = 0$，$b = ${formatNum(b)}$，$c = ${formatNum(c)}$）`, hl: true });
     const x = -c / b;
-    steps.push({ text: `移项: ${formatCoeff2(b)}x = ${formatNum(-c)}`, hl: false });
-    steps.push({ text: `x = ${formatNum(-c)} ÷ ${formatNum(b)} = ${formatNum(x)}`, hl: false });
-    steps.push({ text: `✓ 解: x = ${formatNum(x)}`, hl: true });
+    steps.push({ text: `解得：$x = ${frac(formatNum(-c), formatNum(b))} = ${formatNum(x)}$`, hl: false });
+    steps.push({ text: `✓ 解：$x = ${formatNum(x)}$`, hl: true });
     return { type: 'linear', degree: 1, solutions: [formatNum(x)], display: `x = ${formatNum(x)}`, b, c };
 }
 
 function solveQuadratic(a: number, b: number, c: number, steps: SolveStep[]): SolveResult {
-    const eqText = fmtPoly([a, b, c], ['x^2', 'x', '']);
-    steps.push({ text: `二次方程: ${eqText} = 0`, hl: true });
-    steps.push({ text: `系数: a = ${formatNum(a)}, b = ${formatNum(b)}, c = ${formatNum(c)}`, hl: false });
+    // 方程显示美化
+    const aStr = a === 1 ? '' : a === -1 ? '-' : a;
+    const bSign = b >= 0 ? '+' : '−';
+    const bAbs = Math.abs(b) === 1 ? '' : formatNum(Math.abs(b));
+    const cSign = c >= 0 ? '+' : '−';
+    const cAbs = formatNum(Math.abs(c));
+    const eqDisplay = `${aStr}x^{2} ${bSign} ${bAbs === '' && Math.abs(b) === 1 ? '' : bAbs}x ${cSign} ${cAbs} = 0`.replace(/\\s+/g, ' ').trim();
+
+    steps.push({ text: `识别方程：$${eqDisplay}$（$a = ${formatNum(a)}$，$b = ${formatNum(b)}$，$c = ${formatNum(c)}$）`, hl: true });
 
     const delta = b * b - 4 * a * c;
-    steps.push({ text: `判别式 Δ = b² − 4ac = ${formatNum(b)}² − 4×${formatNum(a)}×${formatNum(c)} = ${formatNum(delta)}`, hl: false });
+    const bSquared = b * b;
+    const fourAC = 4 * a * c;
+    const fourACStr = fourAC < 0 ? `(${formatNum(fourAC)})` : formatNum(fourAC);
+    steps.push({ text: `计算判别式：$\\Delta = (${formatNum(b)})^{2} - 4 \\times ${formatNum(a)} \\times ${formatNum(c)} = ${formatNum(bSquared)} - ${fourACStr} = ${formatNum(delta)}$`, hl: false });
+
+    const twoA = 2 * a;
 
     if (delta < -1e-10) {
-        const realPart = -b / (2 * a);
-        const imagPart = Math.sqrt(-delta) / (2 * a);
-        steps.push({ text: `Δ < 0，有两个共轭复根`, hl: false });
-        steps.push({ text: `求根公式: x = (−b ± √Δ) / (2a) = (${formatNum(-b)} ± √${formatNum(-delta)}i) / ${formatNum(2 * a)}`, hl: false });
-        steps.push({ text: `实部 = −b/(2a) = ${formatNum(realPart)}`, hl: false });
-        steps.push({ text: `虚部 = √(−Δ)/(2a) = ${formatNum(imagPart)}`, hl: false });
+        const realPart = -b / twoA;
+        const imagPart = Math.sqrt(-delta) / twoA;
+        steps.push({ text: `$\\because \\Delta < 0$，∴ 无实数解，以下为复数域内的解：`, hl: false });
+        steps.push({ text: `代入求根公式：$x = ${frac(`${formatNum(-b)} \\pm ${sqrtL(formatNum(-delta))} \\cdot i`, formatNum(twoA))} = ${formatNum(realPart)} \\pm ${formatNum(imagPart)}i$`, hl: false });
         const display = `x₁ = ${formatNum(realPart)} + ${formatNum(imagPart)}i\nx₂ = ${formatNum(realPart)} − ${formatNum(imagPart)}i`;
-        steps.push({ text: `✓ x₁ = ${formatNum(realPart)} + ${formatNum(imagPart)}i`, hl: true });
-        steps.push({ text: `✓ x₂ = ${formatNum(realPart)} − ${formatNum(imagPart)}i`, hl: true });
+        steps.push({ text: `✓ $x_{1} = ${formatNum(realPart)} + ${formatNum(imagPart)}i$`, hl: true });
+        steps.push({ text: `✓ $x_{2} = ${formatNum(realPart)} - ${formatNum(imagPart)}i$`, hl: true });
         return {
             type: 'quadratic', a, b, c, delta, degree: 2,
             solutions: [`${formatNum(realPart)}+${formatNum(imagPart)}i`, `${formatNum(realPart)}-${formatNum(imagPart)}i`],
             display,
         };
     } else if (Math.abs(delta) < 1e-10) {
-        const x = -b / (2 * a);
-        steps.push({ text: `Δ = 0，有一个重根`, hl: false });
-        steps.push({ text: `x = −b/(2a) = ${formatNum(-b)} / ${formatNum(2 * a)} = ${formatNum(x)}`, hl: false });
+        const x = -b / twoA;
+        steps.push({ text: `$\\because \\Delta = 0$，∴ 方程有两个相等实根（重根）`, hl: false });
+        steps.push({ text: `代入求根公式：$x = ${frac(`${formatNum(-b)} \\pm 0`, formatNum(twoA))} = ${formatNum(x)}$`, hl: false });
         const display = `x = ${formatNum(x)} (重根)`;
-        steps.push({ text: `✓ ${display}`, hl: true });
+        steps.push({ text: `✓ $x_{1} = x_{2} = ${formatNum(x)}$`, hl: true });
         return { type: 'quadratic', a, b, c, delta: 0, degree: 2, solutions: [formatNum(x)], display };
     } else {
         const sqrtDelta = Math.sqrt(delta);
-        const x1 = (-b + sqrtDelta) / (2 * a);
-        const x2 = (-b - sqrtDelta) / (2 * a);
-        steps.push({ text: `Δ > 0，有两个不等实根`, hl: false });
-        steps.push({ text: `√Δ = √${formatNum(delta)} = ${formatNum(sqrtDelta)}`, hl: false });
-        steps.push({ text: `x₁ = (−b + √Δ)/(2a) = (${formatNum(-b)} + ${formatNum(sqrtDelta)}) / ${formatNum(2 * a)} = ${formatNum(x1)}`, hl: false });
-        steps.push({ text: `x₂ = (−b − √Δ)/(2a) = (${formatNum(-b)} − ${formatNum(sqrtDelta)}) / ${formatNum(2 * a)} = ${formatNum(x2)}`, hl: false });
+        const x1 = (-b + sqrtDelta) / twoA;
+        const x2 = (-b - sqrtDelta) / twoA;
+        steps.push({ text: `$\\because \\Delta > 0$，∴ 方程有两个不相等实根`, hl: false });
+        steps.push({ text: `代入求根公式：$x = ${frac(`${formatNum(-b)} \\pm ${sqrtL(formatNum(delta))}`, formatNum(twoA))} = ${frac(`${formatNum(-b)} \\pm ${formatNum(sqrtDelta)}`, formatNum(twoA))}$`, hl: false });
+        steps.push({ text: `化简结果：$x_{1} = ${formatNum(x1)}$，$x_{2} = ${formatNum(x2)}$`, hl: true });
         const display = `x₁ = ${formatNum(x1)}\nx₂ = ${formatNum(x2)}`;
-        steps.push({ text: `✓ x₁ = ${formatNum(x1)}`, hl: true });
-        steps.push({ text: `✓ x₂ = ${formatNum(x2)}`, hl: true });
         return { type: 'quadratic', a, b, c, delta, degree: 2, solutions: [formatNum(x1), formatNum(x2)], display };
     }
 }
 
 function solveCubic(a3: number, a2: number, a1: number, a0: number, steps: SolveStep[]): SolveResult {
-    const eqText = fmtPoly([a3, a2, a1, a0], ['x^3', 'x^2', 'x', '']);
-    steps.push({ text: `三次方程: ${eqText} = 0`, hl: true });
+    const eqText = fmtPoly([a3, a2, a1, a0], ['x³', 'x²', 'x', '']);
+    steps.push({ text: `识别方程：$${eqText} = 0$`, hl: true });
 
     const p = a2 / a3, q = a1 / a3, r = a0 / a3;
-    const stdEq = fmtPoly([1, p, q, r], ['x^3', 'x^2', 'x', '']);
-    steps.push({ text: `标准化 (除以${formatNum(a3)}): ${stdEq} = 0`, hl: false });
+    const stdEq = fmtPoly([1, p, q, r], ['x³', 'x²', 'x', '']);
+    steps.push({ text: `标准化（除以 $${formatNum(a3)}$）：$${stdEq} = 0$`, hl: false });
 
     const P = q - (p * p) / 3;
     const Q = r - (p * q) / 3 + (2 * p * p * p) / 27;
-    steps.push({ text: `令 x = y - p/3, 消去二次项:`, hl: false });
-    steps.push({ text: `P = q - p²/3 = ${formatNum(P)}`, hl: false });
-    steps.push({ text: `Q = r - pq/3 + 2p³/27 = ${formatNum(Q)}`, hl: false });
-    steps.push({ text: `化为: ${fmtPoly([1, 0, P, Q], ['y^3', 'y^2', 'y', ''])} = 0`, hl: true });
+    steps.push({ text: `消去二次项（令 $x = y - p/3$）：`, hl: false });
+    steps.push({ text: `$P = q - p^{2}/3 = ${formatNum(P)}$，$Q = r - pq/3 + 2p^{3}/27 = ${formatNum(Q)}$`, hl: false });
+    steps.push({ text: `化为：$${fmtPoly([1, 0, P, Q], ['y³', 'y²', 'y', ''])} = 0$`, hl: true });
 
     const discriminant = (Q * Q) / 4 + (P * P * P) / 27;
-    steps.push({ text: `判别式: Δ = Q²/4 + P³/27 = ${formatNum(discriminant)}`, hl: false });
+    steps.push({ text: `判别式：$\\Delta = Q^{2}/4 + P^{3}/27 = ${formatNum(discriminant)}$`, hl: false });
 
     const solutions: string[] = [];
     const shift = p / 3;
@@ -176,36 +191,36 @@ function solveCubic(a3: number, a2: number, a1: number, a0: number, steps: Solve
         const u = Math.cbrt(-Q / 2);
         const x1 = 2 * u - shift, x2 = -u - shift;
         solutions.push(formatNum(x1), formatNum(x2), formatNum(x2));
-        steps.push({ text: `u = ∛(−Q/2) = ${formatNum(u)}`, hl: false });
-        steps.push({ text: `✓ x₁ = 2u − p/3 = ${formatNum(x1)}`, hl: true });
-        steps.push({ text: `✓ x₂ = x₃ = −u − p/3 = ${formatNum(x2)} (重根)`, hl: true });
+        steps.push({ text: `$u = ${cbrtL('-Q/2')} = ${formatNum(u)}$`, hl: false });
+        steps.push({ text: `✓ $x_{1} = 2u - p/3 = ${formatNum(x1)}$`, hl: true });
+        steps.push({ text: `✓ $x_{2} = x_{3} = -u - p/3 = ${formatNum(x2)}$ (重根)`, hl: true });
     } else if (discriminant > 1e-10) {
         steps.push({ text: 'Δ > 0，有一个实根和两个共轭复根', hl: false });
         const sqrtD = Math.sqrt(discriminant);
         const u = Math.cbrt(-Q / 2 + sqrtD), v = Math.cbrt(-Q / 2 - sqrtD);
         const x1 = u + v - shift;
         solutions.push(formatNum(x1));
-        steps.push({ text: `√Δ = ${formatNum(sqrtD)}`, hl: false });
-        steps.push({ text: `u = ∛(−Q/2 + √Δ) = ${formatNum(u)}`, hl: false });
-        steps.push({ text: `v = ∛(−Q/2 − √Δ) = ${formatNum(v)}`, hl: false });
+        steps.push({ text: `$${sqrtL('\\Delta')} = ${formatNum(sqrtD)}$`, hl: false });
+        steps.push({ text: `$u = ${cbrtL(`-Q/2 + ${sqrtL('\\Delta')}`)} = ${formatNum(u)}$`, hl: false });
+        steps.push({ text: `$v = ${cbrtL(`-Q/2 - ${sqrtL('\\Delta')}`)} = ${formatNum(v)}$`, hl: false });
         const realPart = -(u + v) / 2 - shift;
         const imagPart = (Math.sqrt(3) / 2) * (u - v);
         solutions.push(`${formatNum(realPart)}+${formatNum(Math.abs(imagPart))}i`);
         solutions.push(`${formatNum(realPart)}-${formatNum(Math.abs(imagPart))}i`);
-        steps.push({ text: `✓ x₁ = u + v − p/3 = ${formatNum(x1)} (实根)`, hl: true });
-        steps.push({ text: `✓ x₂ = ${formatNum(realPart)} + ${formatNum(Math.abs(imagPart))}i`, hl: true });
-        steps.push({ text: `✓ x₃ = ${formatNum(realPart)} − ${formatNum(Math.abs(imagPart))}i`, hl: true });
+        steps.push({ text: `✓ $x_{1} = u + v - p/3 = ${formatNum(x1)}$ (实根)`, hl: true });
+        steps.push({ text: `✓ $x_{2} = ${formatNum(realPart)} + ${formatNum(Math.abs(imagPart))}i$`, hl: true });
+        steps.push({ text: `✓ $x_{3} = ${formatNum(realPart)} - ${formatNum(Math.abs(imagPart))}i$`, hl: true });
     } else {
         steps.push({ text: 'Δ < 0，有三个不等实根（三角函数法）', hl: false });
         const phi = Math.acos((-Q / 2) / Math.sqrt(-(P * P * P) / 27));
         const rVal = 2 * Math.sqrt(-P / 3);
-        steps.push({ text: `φ = arccos(−Q/2 / √(−P³/27)) = ${formatNum(phi)} rad`, hl: false });
-        steps.push({ text: `r = 2√(−P/3) = ${formatNum(rVal)}`, hl: false });
+        steps.push({ text: `$\phi = \\cos^{-1}(-Q/2 / ${sqrtL('-P^{3}/27')}) = ${formatNum(phi)}\\ \\text{rad}$`, hl: false });
+        steps.push({ text: `$r = 2${sqrtL('-P/3')} = ${formatNum(rVal)}$`, hl: false });
         for (let k = 0; k < 3; k++) {
             const angle = (phi + 2 * Math.PI * k) / 3;
             const xk = rVal * Math.cos(angle) - shift;
             solutions.push(formatNum(xk));
-            steps.push({ text: `✓ x${k + 1} = r·cos((φ+2π·${k})/3) − p/3 = ${formatNum(xk)}`, hl: true });
+            steps.push({ text: `✓ $x_{${k+1}} = r \\cdot \\cos((\\phi + 2\\pi \\cdot ${k})/3) - p/3 = ${formatNum(xk)}$`, hl: true });
         }
     }
 
@@ -215,27 +230,27 @@ function solveCubic(a3: number, a2: number, a1: number, a0: number, steps: Solve
 
 // 非多项式求解器
 function solveRadical(inner: string, right: string, steps: SolveStep[]): SolveResult {
-    steps.push({ text: `根式方程: √(${inner}) = ${right}`, hl: true });
+    steps.push({ text: `识别方程：$${sqrtL(`(${inner})`)} = ${right}$`, hl: true });
     const c = safeEvalSimple(right);
     if (isNaN(c) || c < 0) throw new Error("根式方程右边必须 ≥ 0");
     const c2 = c * c;
-    steps.push({ text: `两边平方: ${inner} = ${right}² = ${formatNum(c2)}`, hl: false });
+    steps.push({ text: `两边平方：${inner} = (${right})² = ${formatNum(c2)}`, hl: false });
     const poly = parsePolynomial(`(${inner})-(${formatNum(c2)})`);
     const [d, b, a] = poly.coeffs;
     if (Math.abs(a) > 1e-10) {
         const x = -b / a;
-        steps.push({ text: `x = ${formatNum(-b)} / ${formatNum(a)} = ${formatNum(x)}`, hl: false });
-        steps.push({ text: `✓ x = ${formatNum(x)}`, hl: true });
+        steps.push({ text: `解得：x = ${formatNum(-b)} / ${formatNum(a)} = ${formatNum(x)}`, hl: false });
+        steps.push({ text: `✓ $x = ${formatNum(x)}$`, hl: true });
         return { type: 'radical', degree: 1, solutions: [formatNum(x)], display: `x = ${formatNum(x)}` };
     }
     const x = -d / b;
-    steps.push({ text: `x = ${formatNum(-d)} / ${formatNum(b)} = ${formatNum(x)}`, hl: false });
-    steps.push({ text: `✓ x = ${formatNum(x)}`, hl: true });
+    steps.push({ text: `解得：$x = ${frac(formatNum(-d), formatNum(b))} = ${formatNum(x)}$`, hl: false });
+    steps.push({ text: `✓ $x = ${formatNum(x)}$`, hl: true });
     return { type: 'radical', degree: 1, solutions: [formatNum(x)], display: `x = ${formatNum(x)}` };
 }
 
 function solveRational(left: string, right: string, steps: SolveStep[]): SolveResult {
-    steps.push({ text: `分式方程: ${left} = ${right}`, hl: true });
+    steps.push({ text: `识别方程：$${left} = ${right}$`, hl: true });
     const cVal = safeEvalSimple(right.replace(/\^/g, '**'));
     if (isNaN(cVal)) throw new Error("右边无法计算");
     const parts = left.split(/([+-])/);
@@ -254,28 +269,28 @@ function solveRational(left: string, right: string, steps: SolveStep[]): SolveRe
     const denom = cVal - b;
     if (Math.abs(denom) < 1e-10) throw new Error("分母为零，无解");
     const x = a / denom;
-    steps.push({ text: `x = ${formatNum(a)} / ${formatNum(denom)} = ${formatNum(x)}`, hl: false });
-    steps.push({ text: `✓ x = ${formatNum(x)}`, hl: true });
+    steps.push({ text: `$x = ${frac(formatNum(a), formatNum(denom))} = ${formatNum(x)}$`, hl: false });
+    steps.push({ text: `✓ $x = ${formatNum(x)}$`, hl: true });
     return { type: 'rational', degree: 1, solutions: [formatNum(x)], display: `x = ${formatNum(x)}` };
 }
 
 function solveExponential(left: string, right: string, steps: SolveStep[]): SolveResult {
     const a = parseFloat(left.replace('^x', ''));
     const b = parseFloat(right);
-    steps.push({ text: `指数方程: ${a}^x = ${b}`, hl: true });
-    steps.push({ text: `取自然对数: x·ln(${a}) = ln(${b})`, hl: false });
+    steps.push({ text: `识别方程：$${a}^{x} = ${b}$`, hl: true });
+    steps.push({ text: `取自然对数：$x \\cdot \\ln(${a}) = \\ln(${b})$`, hl: false });
     const x = Math.log(b) / Math.log(a);
-    steps.push({ text: `x = ln(${b}) / ln(${a}) = ${formatNum(x)}`, hl: false });
-    steps.push({ text: `✓ x = ${formatNum(x)}`, hl: true });
+    steps.push({ text: `解得：$x = \\dfrac{\\ln(${b})}{\\ln(${a})} = ${formatNum(x)}$`, hl: false });
+    steps.push({ text: `✓ $x = ${formatNum(x)}$`, hl: true });
     return { type: 'exponential', degree: 0, solutions: [formatNum(x)], display: `x = ${formatNum(x)}` };
 }
 
 function solveLogarithmic(right: string, steps: SolveStep[]): SolveResult {
     const a = safeEvalSimple(right);
-    steps.push({ text: `对数方程: ln(x) = ${formatNum(a)}`, hl: true });
+    steps.push({ text: `识别方程：$\\ln(x) = ${formatNum(a)}$`, hl: true });
     const x = Math.exp(a);
-    steps.push({ text: `x = e^${formatNum(a)} = ${formatNum(x)}`, hl: false });
-    steps.push({ text: `✓ x = ${formatNum(x)}`, hl: true });
+    steps.push({ text: `解得：$x = e^{${formatNum(a)}} = ${formatNum(x)}$`, hl: false });
+    steps.push({ text: `✓ $x = ${formatNum(x)}$`, hl: true });
     return { type: 'logarithmic', degree: 0, solutions: [formatNum(x)], display: `x = ${formatNum(x)}` };
 }
 
@@ -285,19 +300,19 @@ function solveAbsolute(inner: string, right: string, steps: SolveStep[]): SolveR
         steps.push({ text: `|${inner}| = ${formatNum(a)} < 0，无解`, hl: true });
         return { type: 'absolute', degree: 0, solutions: [], display: '无解' };
     }
-    steps.push({ text: `绝对值方程: |${inner}| = ${formatNum(a)}`, hl: true });
+    steps.push({ text: `识别方程：$|${inner}| = ${formatNum(a)}$`, hl: true });
     if (Math.abs(a) < 1e-10) {
-        steps.push({ text: `✓ x = 0`, hl: true });
+        steps.push({ text: `✓ $x = 0$`, hl: true });
         return { type: 'absolute', degree: 0, solutions: ['0'], display: 'x = 0' };
     }
-    steps.push({ text: `✓ x₁ = ${formatNum(a)}`, hl: true });
-    steps.push({ text: `✓ x₂ = ${formatNum(-a)}`, hl: true });
+    steps.push({ text: `✓ $x_{1} = ${formatNum(a)}$`, hl: true });
+    steps.push({ text: `✓ $x_{2} = ${formatNum(-a)}$`, hl: true });
     return { type: 'absolute', degree: 0, solutions: [formatNum(a), formatNum(-a)], display: `x₁ = ${formatNum(a)}  |  x₂ = ${formatNum(-a)}` };
 }
 
 function solveTrig(func: string, inner: string, right: string, steps: SolveStep[], useDeg: boolean): SolveResult {
     const a = safeEvalSimple(right);
-    steps.push({ text: `三角方程: ${func}(${inner}) = ${formatNum(a)}`, hl: true });
+    steps.push({ text: `识别方程：$\\${func}(${inner}) = ${formatNum(a)}$`, hl: true });
     if (Math.abs(a) > 1) throw new Error(`${func} 的值域为 [-1, 1]，${formatNum(a)} 超出范围`);
 
     const radVal = func === 'sin' ? Math.asin(a) : func === 'cos' ? Math.acos(a) : Math.atan(a);
@@ -305,33 +320,33 @@ function solveTrig(func: string, inner: string, right: string, steps: SolveStep[
 
     if (func === 'sin') {
         if (useDeg) {
-            steps.push({ text: `x₁ = arcsin(${formatNum(a)}) = ${formatNum(degVal)}°`, hl: false });
+            steps.push({ text: `$x_{1} = \\sin^{-1}(${formatNum(a)}) = ${formatNum(degVal)}°$`, hl: false });
             const x2 = 180 - degVal;
-            steps.push({ text: `x₂ = 180° − ${formatNum(degVal)}° = ${formatNum(x2)}°`, hl: false });
-            steps.push({ text: `✓ x₁ = ${formatNum(degVal)}°  |  x₂ = ${formatNum(x2)}°`, hl: true });
+            steps.push({ text: `$x_{2} = 180° - ${formatNum(degVal)}° = ${formatNum(x2)}°$`, hl: false });
+            steps.push({ text: `✓ $x_{1} = ${formatNum(degVal)}°$  |  $x_{2} = ${formatNum(x2)}°$`, hl: true });
             return { type: 'trig', degree: 0, solutions: [formatNum(degVal) + '°', formatNum(x2) + '°'], display: `x₁ = ${formatNum(degVal)}°  |  x₂ = ${formatNum(x2)}°` };
         }
         const x2 = Math.PI - radVal;
-        steps.push({ text: `x₁ = arcsin(${formatNum(a)}) = ${formatNum(radVal)} rad`, hl: false });
-        steps.push({ text: `✓ x₁ = ${formatNum(radVal)} rad  |  x₂ = ${formatNum(x2)} rad`, hl: true });
+        steps.push({ text: `$x_{1} = \\sin^{-1}(${formatNum(a)}) = ${formatNum(radVal)}\\ \\text{rad}$`, hl: false });
+        steps.push({ text: `✓ $x_{1} = ${formatNum(radVal)}\\ \\text{rad}$  |  $x_{2} = ${formatNum(x2)}\\ \\text{rad}$`, hl: true });
         return { type: 'trig', degree: 0, solutions: [formatNum(radVal) + ' rad', formatNum(x2) + ' rad'], display: `x₁ = ${formatNum(radVal)} rad  |  x₂ = ${formatNum(x2)} rad` };
     } else if (func === 'cos') {
         if (useDeg) {
             const x2 = -degVal;
-            steps.push({ text: `x₁ = arccos(${formatNum(a)}) = ${formatNum(degVal)}°`, hl: false });
-            steps.push({ text: `✓ x₁ = ${formatNum(degVal)}°  |  x₂ = ${formatNum(x2)}°`, hl: true });
+            steps.push({ text: `$x_{1} = \\cos^{-1}(${formatNum(a)}) = ${formatNum(degVal)}°$`, hl: false });
+            steps.push({ text: `✓ $x_{1} = ${formatNum(degVal)}°$  |  $x_{2} = ${formatNum(x2)}°$`, hl: true });
             return { type: 'trig', degree: 0, solutions: [formatNum(degVal) + '°', formatNum(x2) + '°'], display: `x₁ = ${formatNum(degVal)}°  |  x₂ = ${formatNum(x2)}°` };
         }
         const x2 = -radVal;
-        steps.push({ text: `✓ x₁ = ${formatNum(radVal)} rad  |  x₂ = ${formatNum(x2)} rad`, hl: true });
+        steps.push({ text: `✓ $x_{1} = ${formatNum(radVal)}\\ \\text{rad}$  |  $x_{2} = ${formatNum(x2)}\\ \\text{rad}$`, hl: true });
         return { type: 'trig', degree: 0, solutions: [formatNum(radVal) + ' rad', formatNum(x2) + ' rad'], display: `x₁ = ${formatNum(radVal)} rad  |  x₂ = ${formatNum(x2)} rad` };
     } else {
         if (useDeg) {
-            steps.push({ text: `x = arctan(${formatNum(a)}) = ${formatNum(degVal)}°`, hl: false });
-            steps.push({ text: `✓ x = ${formatNum(degVal)}°`, hl: true });
+            steps.push({ text: `$x = \\tan^{-1}(${formatNum(a)}) = ${formatNum(degVal)}°$`, hl: false });
+            steps.push({ text: `✓ $x = ${formatNum(degVal)}°$`, hl: true });
             return { type: 'trig', degree: 0, solutions: [formatNum(degVal) + '°'], display: `x = ${formatNum(degVal)}°` };
         }
-        steps.push({ text: `✓ x = ${formatNum(radVal)} rad`, hl: true });
+        steps.push({ text: `✓ $x = ${formatNum(radVal)}\\ \\text{rad}$`, hl: true });
         return { type: 'trig', degree: 0, solutions: [formatNum(radVal) + ' rad'], display: `x = ${formatNum(radVal)} rad` };
     }
 }
@@ -346,7 +361,7 @@ export function solveEquation(equationStr: string, useDegrees: boolean): { steps
 
     const left = parts[0] || '0';
     const right = parts[1] || '0';
-    steps.push({ text: `原方程: ${left} = ${right}`, hl: false });
+    steps.push({ text: `原方程：$${left} = ${right}$`, hl: false });
 
     // 非多项式检测
     let m = left.match(/^sqrt\((.+)\)$/) || left.match(/^√\((.+)\)$/);
@@ -357,7 +372,7 @@ export function solveEquation(equationStr: string, useDegrees: boolean): { steps
         return { steps, result: solveRational(left, right, steps) };
     }
 
-    if (/^[\d.]+?\^x$/.test(left) && /^[\d.+-]+$/.test(right)) {
+    if (/^[\d.]+?\^x$/.test(left) || /^[\d.]+?ˣ$/.test(left)) {
         return { steps, result: solveExponential(left, right, steps) };
     }
 
@@ -377,7 +392,7 @@ export function solveEquation(equationStr: string, useDegrees: boolean): { steps
 
     // 多项式求解
     const combinedExpr = `(${left})-(${right})`;
-    steps.push({ text: `移项: ${combinedExpr} = 0`, hl: false });
+    steps.push({ text: `整理为标准形式：$${combinedExpr} = 0$`, hl: false });
 
     const poly = parsePolynomial(combinedExpr);
     const [c, b, a, a3] = poly.coeffs;
@@ -388,14 +403,24 @@ export function solveEquation(equationStr: string, useDegrees: boolean): { steps
     else if (Math.abs(a) > eps) degree = 2;
     else if (Math.abs(b) > eps) degree = 1;
 
-    const simplified = fmtPoly([a3, a, b, c], ['x^3', 'x^2', 'x', '']);
-    steps.push({ text: `化简: ${simplified} = 0`, hl: true });
+    const simplified = fmtPoly([a3, a, b, c], ['x³', 'x²', 'x', '']);
+    steps.push({ text: `化简：$${simplified} = 0$`, hl: true });
 
+    // P2: a=0 自动降级处理
     let result: SolveResult;
-    if (degree === 3) result = solveCubic(a3, a, b, c, steps);
-    else if (degree === 2) result = solveQuadratic(a, b, c, steps);
-    else if (degree === 1) result = solveLinear(b, c, steps);
-    else if (Math.abs(c) < eps) {
+    if (degree === 3) {
+        result = solveCubic(a3, a, b, c, steps);
+    } else if (degree === 2) {
+        if (Math.abs(a) < eps) {
+            // 二次项系数接近0，降级为一次方程
+            steps.push({ text: `⚠️ 二次项系数 a ≈ 0，退化为一次方程`, hl: true });
+            result = solveLinear(b, c, steps);
+        } else {
+            result = solveQuadratic(a, b, c, steps);
+        }
+    } else if (degree === 1) {
+        result = solveLinear(b, c, steps);
+    } else if (Math.abs(c) < eps) {
         result = { type: 'identity', degree: 0, solutions: [], display: '恒等式，任意 x 均成立' };
         steps.push({ text: '0 = 0，恒等式，任意 x 均成立', hl: false });
     } else {

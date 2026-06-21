@@ -34,6 +34,10 @@ export function npr(n: number, r: number): number {
     return Math.round(factorial(n) / factorial(n - r));
 }
 
+export function logBase(base: number, x: number): number {
+    return Math.log(x) / Math.log(base);
+}
+
 /** 格式化数字：整数直接显示，小数保留4位 */
 export function formatNum(n: number): string {
     return Number.isInteger(n) ? n.toString() : n.toFixed(4);
@@ -94,9 +98,10 @@ export function prepareExpression(expr: string): string {
     prepared = prepared.replace(/(\d+\.?\d*)%/g, "($1/100)");
     prepared = prepared.replace(/(\d+\.?\d*)!/g, "factorial($1)");
 
-    // 组合与排列
-    prepared = prepared.replace(/\bncr\s*\((\d+)\s*,\s*(\d+)\)/g, "ncr($1,$2)");
-    prepared = prepared.replace(/\bnpr\s*\((\d+)\s*,\s*(\d+)\)/g, "npr($1,$2)");
+    // 组合与排列（先统一大小写，再规范化空格）
+    prepared = prepared.replace(/\b(ncr|npr)\b/gi, (m: string) => m.toLowerCase());
+    prepared = prepared.replace(/\bncr\s*\(([^,]+)\s*,\s*([^)]+)\)/g, "ncr($1,$2)");
+    prepared = prepared.replace(/\bnpr\s*\(([^,]+)\s*,\s*([^)]+)\)/g, "npr($1,$2)");
 
     // 第1轮：直接映射到 Math.*
     prepared = prepared.replace(/\bfloor\b/g, "Math.floor");
@@ -109,10 +114,15 @@ export function prepareExpression(expr: string): string {
     prepared = prepared.replace(/\bsinh\b/g, "Math.sinh");
     prepared = prepared.replace(/\bcosh\b/g, "Math.cosh");
     prepared = prepared.replace(/\btanh\b/g, "Math.tanh");
+    prepared = prepared.replace(/\basinh\b/g, "Math.asinh");
+    prepared = prepared.replace(/\bacosh\b/g, "Math.acosh");
+    prepared = prepared.replace(/\batanh\b/g, "Math.atanh");
     prepared = prepared.replace(/\basin\b/g, "Math.asin");
     prepared = prepared.replace(/\bacos\b/g, "Math.acos");
     prepared = prepared.replace(/\batan\b/g, "Math.atan");
     prepared = prepared.replace(/\blog\b/g, "Math.log10");
+    // log(base, x) → logBase(base, x) — 双参数对数
+    prepared = prepared.replace(/Math\.log10\s*\(([^,]+),([^)]+)\)/g, "logBase($1,$2)");
     prepared = prepared.replace(/\bpow\b/g, "Math.pow");
 
     // 第2轮：基础函数
@@ -145,12 +155,12 @@ export function evaluateSingle(expr: string): number {
     const prepared = prepareExpression(expr);
     try {
         const result = new Function(
-            "Math", "factorial", "ncr", "npr",
+            "Math", "factorial", "ncr", "npr", "logBase",
             "km", "Hour", "Min", "Second",
             "hour", "min", "second", "sec",
             `"use strict"; return (${prepared});`
         )(
-            Math, factorial, ncr, npr,
+            Math, factorial, ncr, npr, logBase,
             1, 1, 1 / 60, 1 / 3600,
             1, 1 / 60, 1 / 3600, 1 / 3600
         );
