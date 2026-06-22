@@ -83,7 +83,7 @@ build-android-debug:
 IOS_PROJ    := src-tauri/gen/apple/calculator-tauri.xcodeproj
 IOS_SCHEME  := calculator-tauri_iOS
 IOS_DST     := generic/platform=iOS
-PROJ_ROOT   := $(shell pwd)
+PROJ_ROOT   := $(CURDIR)
 # === 一键构建+部署到真机 (devicectl) ===
 # 构建: tauri ios build
 # 部署: devicectl
